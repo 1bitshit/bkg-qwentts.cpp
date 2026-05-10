@@ -87,31 +87,12 @@ def main():
     # the strict validator. Disable it on the talker only.
     model.talker._validate_model_kwargs = lambda *a, **k: None
 
-    # Greedy hardcoded : argmax on both talker c0 and code predictor sub
-    # codes. Stochastic mode is not exercised here because the F32 drift
-    # between torch CUDA cuBLAS and ggml CUDA matmul on Qwen3 norm_w
-    # inflated activations propagates through the FFN and flips multinomial
-    # picks in flat distributions, breaking bit exactness. Argmax is robust
-    # to that drift, so greedy gives 100 percent CodesFull match and
-    # validates the full forward + sampling chain.
-    gen_kwargs = dict(
-        do_sample             = False,
-        top_k                 = 1,
-        top_p                 = 1.0,
-        temperature           = 1.0,
-        subtalker_dosample    = False,
-        subtalker_top_k       = 1,
-        subtalker_top_p       = 1.0,
-        subtalker_temperature = 1.0,
-        repetition_penalty    = 1.0,
-    )
-
     talker_codes_list, _ = model.generate(
         input_ids=[input_ids],
         languages=[args.lang],
         non_streaming_mode=True,
         max_new_tokens=args.max_new_tokens,
-        **gen_kwargs,
+        **cc.GEN_KWARGS_GREEDY,
     )
     codes = talker_codes_list[0]
     print(f"[Python] Codes shape: {tuple(codes.shape)} (T_frames, num_code_groups)")

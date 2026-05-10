@@ -58,6 +58,13 @@ from qwen_tts.core.models.modeling_qwen3_tts      import Qwen3TTSForConditionalG
 from qwen_tts.core.models.configuration_qwen3_tts import Qwen3TTSConfig
 from qwen_tts.core.models.processing_qwen3_tts    import Qwen3TTSProcessor
 from transformers import AutoConfig, AutoModel, AutoProcessor
+from transformers.utils import logging as hf_logging
+
+# Silence the GenerationConfig validator that warns "flags are not valid
+# and may be ignored" for temperature / top_k / top_p when do_sample=False.
+# Those flags ride along inside the checkpoint generation_config and the
+# greedy path drops them on purpose, the warning is just noise here.
+hf_logging.set_verbosity_error()
 
 # Register the Qwen3-TTS classes once per process. Calling twice raises a
 # ValueError inside transformers, hence the guard.
@@ -378,3 +385,14 @@ def compare_exact_i32(name, dump_cpp, dump_pt, label):
     pct  = 100.0 * float(np.mean(ai[:n] == bi[:n]))
     print(f"[Cossim] {label} exact: {pct:.2f}% ({n} values)")
     return pct
+
+# Greedy generation kwargs shared by every cossim script. do_sample=False
+# alone selects argmax, top_k / top_p / temperature are intentionally
+# omitted because GenerationConfig flags them as "not valid" warnings when
+# do_sample=False. The subtalker_* keys are custom kwargs forwarded to the
+# talker forward, the talker validator is bypassed by the script main.
+GEN_KWARGS_GREEDY = dict(
+    do_sample             = False,
+    subtalker_dosample    = False,
+    repetition_penalty    = 1.0,
+)

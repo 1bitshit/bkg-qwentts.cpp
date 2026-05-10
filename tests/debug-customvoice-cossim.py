@@ -113,18 +113,6 @@ def main():
     # the strict validator. Disable it on the talker only.
     model.talker._validate_model_kwargs = lambda *a, **k: None
 
-    gen_kwargs = dict(
-        do_sample             = False,
-        top_k                 = 1,
-        top_p                 = 1.0,
-        temperature           = 1.0,
-        subtalker_dosample    = False,
-        subtalker_top_k       = 1,
-        subtalker_top_p       = 1.0,
-        subtalker_temperature = 1.0,
-        repetition_penalty    = 1.0,
-    )
-
     talker_codes_list, _ = model.generate(
         input_ids=[input_ids],
         instruct_ids=instruct_ids_arg,
@@ -132,7 +120,7 @@ def main():
         speakers=[args.speaker],
         non_streaming_mode=True,
         max_new_tokens=args.max_new_tokens,
-        **gen_kwargs,
+        **cc.GEN_KWARGS_GREEDY,
     )
     codes = talker_codes_list[0]
     print(f"[Python] Codes shape: {tuple(codes.shape)} (T_frames, num_code_groups)")

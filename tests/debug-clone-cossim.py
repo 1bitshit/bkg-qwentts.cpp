@@ -147,18 +147,6 @@ def main():
     # the strict validator. Disable it on the talker only.
     model.talker._validate_model_kwargs = lambda *a, **k: None
 
-    gen_kwargs = dict(
-        do_sample             = False,
-        top_k                 = 1,
-        top_p                 = 1.0,
-        temperature           = 1.0,
-        subtalker_dosample    = False,
-        subtalker_top_k       = 1,
-        subtalker_top_p       = 1.0,
-        subtalker_temperature = 1.0,
-        repetition_penalty    = 1.0,
-    )
-
     # voice_clone_prompt dict mirrors what _prompt_items_to_voice_clone_prompt
     # builds for a single ICL prompt item : ref_code is the [T_codec, K]
     # tensor, ref_spk_embedding is the [hidden] tensor, x_vector_only=False
@@ -177,7 +165,7 @@ def main():
         languages=[args.lang],
         non_streaming_mode=False,
         max_new_tokens=args.max_new_tokens,
-        **gen_kwargs,
+        **cc.GEN_KWARGS_GREEDY,
     )
     codes = talker_codes_list[0]
     print(f"[Python] Codes shape: {tuple(codes.shape)} (T_frames, num_code_groups)")
