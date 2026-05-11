@@ -69,13 +69,13 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Debug] tts-pad-embed: [2048] first4: -0.005331 0.008751 -0.004225 0.001141
 [Debug] speaker-emb: [2048] first4: 0.098317 -0.023761 -0.011860 0.006760
 [Debug] ref-codes: [16, 215] first4: 1221.000000 2042.000000 509.000000 1522.000000
-[Debug] talker-hidden-prefill-l0: [225, 2048] first4: -0.460968 -0.069929 0.016046 -0.039092
-[Debug] talker-hidden-prefill-l7: [225, 2048] first4: -1.525316 -0.007488 0.340215 1.777316
-[Debug] talker-hidden-prefill-l14: [225, 2048] first4: -1.296772 0.189306 0.441261 1.743796
-[Debug] talker-hidden-prefill-l21: [225, 2048] first4: -0.771752 0.171251 0.791418 1.111587
-[Debug] talker-hidden-prefill-l27: [225, 2048] first4: 7.133099 -34.474205 -7.108918 28.674948
-[Debug] talker-hidden-prefill-final: [225, 2048] first4: 0.242893 -1.225840 -0.224932 0.890015
-[Debug] talker-logits-prefill: [3072] first4: 1.172282 -7.792083 -6.821526 -10.286682
+[Debug] talker-hidden-prefill-l0: [225, 2048] first4: -0.460921 -0.069914 0.016044 -0.039100
+[Debug] talker-hidden-prefill-l7: [225, 2048] first4: -1.525366 -0.007545 0.340203 1.777391
+[Debug] talker-hidden-prefill-l14: [225, 2048] first4: -1.296881 0.189208 0.441204 1.743854
+[Debug] talker-hidden-prefill-l21: [225, 2048] first4: -0.771864 0.171112 0.791441 1.111791
+[Debug] talker-hidden-prefill-l27: [225, 2048] first4: 7.131247 -34.471676 -7.107930 28.674025
+[Debug] talker-hidden-prefill-final: [225, 2048] first4: 0.242833 -1.225769 -0.224904 0.890000
+[Debug] talker-logits-prefill: [3072] first4: 1.173973 -7.794936 -6.823968 -10.287047
 [Sample] step=0 c0=27 u=-1.0000000000 subseq=0
 [Sample-CP] g=0 c=1408 u=-1.0000000000 subseq=1
 [Sample-CP] g=1 c=1824 u=-1.0000000000 subseq=2
@@ -94,7 +94,7 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Sample-CP] g=14 c=541 u=-1.0000000000 subseq=15
 [Debug] codes-step0: [16] first4: 27.000000 1408.000000 1824.000000 400.000000
 [Debug] next-emb-step0: [2048] first4: 0.003672 0.000908 0.039506 0.094594
-[Debug] talker-hidden-step1: [2048] first4: 0.753700 2.407002 -0.055373 0.158864
+[Debug] talker-hidden-step1: [2048] first4: 0.755211 2.408826 -0.056213 0.159002
 [Sample] step=1 c0=1902 u=-1.0000000000 subseq=16
 [Sample-CP] g=0 c=1924 u=-1.0000000000 subseq=17
 [Sample-CP] g=1 c=2025 u=-1.0000000000 subseq=18
@@ -145,15 +145,15 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Cossim] Embed cos: 0.972420 max: 1.7531e-01 mean: 8.3100e-03
 [Cossim] TrailingText cos: 1.000000 max: 1.0431e-06 mean: 9.3616e-09
 [Cossim] TTSPadEmbed cos: 1.000000 max: 1.0431e-06 mean: 9.3616e-09
-[Cossim] L0 cos: 0.986912 max: 6.6438e-01 mean: 1.1101e-02
-[Cossim] L7 cos: 0.999992 max: 1.2571e+00 mean: 2.7507e-02
-[Cossim] L14 cos: 0.999973 max: 2.1778e+00 mean: 5.9922e-02
-[Cossim] L21 cos: 0.999719 max: 8.4742e+00 mean: 2.2263e-01
-[Cossim] L27 cos: 0.998970 max: 2.4310e+01 mean: 5.1154e-01
-[Cossim] Final cos: 0.994696 max: 7.3989e+00 mean: 1.6647e-01
-[Cossim] Logits cos: 0.999745 max: 5.7267e-01 mean: 8.8663e-02
+[Cossim] L0 cos: 0.986912 max: 6.6446e-01 mean: 1.1103e-02
+[Cossim] L7 cos: 0.999992 max: 1.2571e+00 mean: 2.7510e-02
+[Cossim] L14 cos: 0.999973 max: 2.1783e+00 mean: 5.9936e-02
+[Cossim] L21 cos: 0.999719 max: 8.3895e+00 mean: 2.2266e-01
+[Cossim] L27 cos: 0.998971 max: 2.4050e+01 mean: 5.1167e-01
+[Cossim] Final cos: 0.994705 max: 7.3234e+00 mean: 1.6647e-01
+[Cossim] Logits cos: 0.999743 max: 5.7313e-01 mean: 8.8918e-02
 [Cossim] NextEmbStep0 cos: 0.829216 max: 1.2523e-01 mean: 2.9129e-02
-[Cossim] TalkerHiddenStep1 cos: 0.993850 max: 1.4298e+00 mean: 2.4206e-01
+[Cossim] TalkerHiddenStep1 cos: 0.993853 max: 1.4289e+00 mean: 2.4205e-01
 [Cossim] MelHann cos: 1.000000 max: 1.7881e-07 mean: 3.2043e-08
 [Cossim] MelBasis cos: 1.000000 max: 1.7881e-07 mean: 3.9379e-10
 [Cossim] MelMag cos: 1.000000 max: 3.1307e-05 mean: 5.6396e-07
@@ -171,6 +171,6 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Cossim] SpkMFA cos: 1.000000 max: 3.8069e-04 mean: 1.3195e-06
 [Cossim] SpkASP cos: 1.000000 max: 7.9870e-06 mean: 2.2269e-07
 [Cossim] SpeakerEmb cos: 1.000000 max: 1.4305e-05 mean: 2.5463e-07
-[Cossim] CodesFull exact: 3.27% (1008 values)
-[Cossim] Audio cos: 0.053931
-[Cossim] WAV stft_cos: 0.375521 samples: 120960
+[Cossim] CodesFull exact: 3.17% (1008 values)
+[Cossim] Audio cos: 0.042680
+[Cossim] WAV stft_cos: 0.347584 samples: 120960

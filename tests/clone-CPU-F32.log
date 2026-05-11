@@ -75,7 +75,7 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Debug] talker-hidden-prefill-l21: [225, 2048] first4: -0.771753 0.171250 0.791419 1.111589
 [Debug] talker-hidden-prefill-l27: [225, 2048] first4: 7.133091 -34.474182 -7.108906 28.674915
 [Debug] talker-hidden-prefill-final: [225, 2048] first4: 0.242892 -1.225839 -0.224931 0.890014
-[Debug] talker-logits-prefill: [3072] first4: 1.330122 -7.768506 -6.935927 -10.338604
+[Debug] talker-logits-prefill: [3072] first4: 1.330122 -7.768506 -6.935926 -10.338602
 [Sample] step=0 c0=27 u=-1.0000000000 subseq=0
 [Sample-CP] g=0 c=1408 u=-1.0000000000 subseq=1
 [Sample-CP] g=1 c=1824 u=-1.0000000000 subseq=2
@@ -94,7 +94,7 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Sample-CP] g=14 c=365 u=-1.0000000000 subseq=15
 [Debug] codes-step0: [16] first4: 27.000000 1408.000000 1824.000000 400.000000
 [Debug] next-emb-step0: [2048] first4: 0.073561 -0.034233 -0.008814 0.042004
-[Debug] talker-hidden-step1: [2048] first4: 0.584089 2.683546 -0.065922 0.135429
+[Debug] talker-hidden-step1: [2048] first4: 0.584086 2.683545 -0.065921 0.135426
 [Sample] step=1 c0=1902 u=-1.0000000000 subseq=16
 [Sample-CP] g=0 c=1924 u=-1.0000000000 subseq=17
 [Sample-CP] g=1 c=2025 u=-1.0000000000 subseq=18
@@ -149,9 +149,9 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Cossim] L7 cos: 0.999998 max: 1.2205e+00 mean: 7.8975e-03
 [Cossim] L14 cos: 0.999994 max: 2.2472e+00 mean: 2.0513e-02
 [Cossim] L21 cos: 0.999920 max: 1.3672e+01 mean: 8.9238e-02
-[Cossim] L27 cos: 0.999724 max: 2.5152e+01 mean: 2.0175e-01
+[Cossim] L27 cos: 0.999724 max: 2.5153e+01 mean: 2.0175e-01
 [Cossim] Final cos: 0.998553 max: 1.1353e+01 mean: 6.5865e-02
-[Cossim] Logits cos: 0.999966 max: 2.0577e-01 mean: 3.0349e-02
+[Cossim] Logits cos: 0.999966 max: 2.0577e-01 mean: 3.0348e-02
 [Cossim] NextEmbStep0 cos: 0.967766 max: 6.3431e-02 mean: 1.2632e-02
 [Cossim] TalkerHiddenStep1 cos: 0.999113 max: 4.3387e-01 mean: 9.2055e-02
 [Cossim] MelHann cos: 1.000000 max: 1.7881e-07 mean: 3.2043e-08
