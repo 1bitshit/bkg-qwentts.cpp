@@ -209,7 +209,7 @@ static bool parse_args(int argc, char ** argv, Args & a) {
 static int run(const Args & a) {
     BackendPair bp = backend_init("Talker");
 
-    PipelineTTS pt;
+    PipelineTTS pt = {};
     if (!pipeline_tts_load(&pt, a.model, a.codec, bp)) {
         backend_release(bp.backend, bp.cpu_backend);
         return 1;

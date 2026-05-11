@@ -19,8 +19,9 @@
 #include <vector>
 
 bool pipeline_codec_load(PipelineCodec * pc, const char * gguf_path, BackendPair bp) {
-    pc->bp      = bp;
-    pc->backend = bp.backend;
+    pc->bp              = bp;
+    pc->backend         = bp.backend;
+    pc->qenc_host_ready = false;
 
     if (!gf_load(&pc->gguf, gguf_path)) {
         qt_log(QT_LOG_ERROR, "[Pipeline] failed to load %s", gguf_path);
