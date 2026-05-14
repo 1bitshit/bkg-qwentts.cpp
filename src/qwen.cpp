@@ -309,43 +309,36 @@ enum qwen_status qwen_synthesize(struct qwen_context *          q,
     const std::string & mt = q->pt.model_type;
     if (params->speaker && mt != "custom_voice") {
         qt_set_error("--speaker is only valid for custom_voice models (loaded: %s)", mt.c_str());
-        qt_log(QT_LOG_ERROR, "[qwen] %s", qt_last_error());
         qwen_audio_free(out);
         return QWEN_STATUS_MODE_INVALID;
     }
     if (params->instruct && mt == "base") {
         qt_set_error("--instruct is not supported for base models");
-        qt_log(QT_LOG_ERROR, "[qwen] %s", qt_last_error());
         qwen_audio_free(out);
         return QWEN_STATUS_MODE_INVALID;
     }
     if (mt == "custom_voice" && !params->speaker) {
         qt_set_error("custom_voice models require --speaker");
-        qt_log(QT_LOG_ERROR, "[qwen] %s", qt_last_error());
         qwen_audio_free(out);
         return QWEN_STATUS_MODE_INVALID;
     }
     if (mt == "voice_design" && (!params->instruct || params->instruct[0] == '\0')) {
         qt_set_error("voice_design models require --instruct");
-        qt_log(QT_LOG_ERROR, "[qwen] %s", qt_last_error());
         qwen_audio_free(out);
         return QWEN_STATUS_MODE_INVALID;
     }
     if (params->ref_audio_24k && mt != "base") {
         qt_set_error("--ref-audio is only valid for base models (loaded: %s)", mt.c_str());
-        qt_log(QT_LOG_ERROR, "[qwen] %s", qt_last_error());
         qwen_audio_free(out);
         return QWEN_STATUS_MODE_INVALID;
     }
     if (params->speaker && params->ref_audio_24k) {
         qt_set_error("--speaker and --ref-audio are mutually exclusive");
-        qt_log(QT_LOG_ERROR, "[qwen] %s", qt_last_error());
         qwen_audio_free(out);
         return QWEN_STATUS_INVALID_PARAMS;
     }
     if (params->ref_text && !params->ref_audio_24k) {
         qt_set_error("--ref-text requires --ref-audio");
-        qt_log(QT_LOG_ERROR, "[qwen] %s", qt_last_error());
         qwen_audio_free(out);
         return QWEN_STATUS_INVALID_PARAMS;
     }
@@ -397,7 +390,6 @@ enum qwen_status qwen_synthesize(struct qwen_context *          q,
         float *      buf   = (float *) std::malloc(bytes > 0 ? bytes : 1);
         if (!buf) {
             qt_set_error("qwen_synthesize : malloc failed for %zu samples", n);
-            qt_log(QT_LOG_ERROR, "[qwen] %s", qt_last_error());
             qwen_audio_free(out);
             return QWEN_STATUS_OOM;
         }

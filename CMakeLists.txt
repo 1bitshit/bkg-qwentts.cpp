@@ -149,3 +149,26 @@ link_ggml_backends(qwen-codec)
 add_executable(qwen-tts tools/qwen-tts.cpp)
 target_link_libraries(qwen-tts PRIVATE qwen-core)
 link_ggml_backends(qwen-tts)
+
+# test-abi-c : pure C99 smoke test that locks in the public ABI contract.
+# Compiles qwen.h with a C compiler under -Wall -Werror -pedantic and
+# links against the static lib. The test never loads a model ; failure
+# means the public API regressed. Built by default so a regression breaks
+# the main build, not just an opt-in target.
+add_executable(test-abi-c tests/abi-c.c)
+set_target_properties(test-abi-c PROPERTIES
+    C_STANDARD 99
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF
+)
+if(MSVC)
+    target_compile_options(test-abi-c PRIVATE /W4 /WX)
+else()
+    target_compile_options(test-abi-c PRIVATE -Wall -Werror -pedantic)
+endif()
+target_include_directories(test-abi-c PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}
+)
+target_link_libraries(test-abi-c PRIVATE qwen-core)
+link_ggml_backends(test-abi-c)

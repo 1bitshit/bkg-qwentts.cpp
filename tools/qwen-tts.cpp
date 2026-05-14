@@ -1,34 +1,36 @@
-// qwen-tts.cpp : thin CLI wrapper around the Qwen3-TTS synthesis
-// pipeline. Parses arguments, loads the talker + codec GGUFs, hands
-// off to pipeline_tts_synthesize and writes the resulting waveform as
-// a WAV file. All heavy lifting lives in src/pipeline-tts.cpp.
+// qwen-tts.cpp : thin CLI wrapper around the qwentts.cpp public ABI.
+// Parses arguments, reads the optional reference WAV plus transcript,
+// hands off to qwen_synthesize and writes the resulting waveform as a
+// WAV file. All synthesis logic, mode validation and seed resolution
+// live behind the qwen_* facade declared in qwen.h.
 //
 // Talker variants : 0.6B-Base / 0.6B-CustomVoice / 1.7B-Base /
 // 1.7B-CustomVoice / 1.7B-VoiceDesign. The decoder path is selected
-// from GGUF metadata at load time. The CLI surface mirrors the
+// from GGUF metadata at qwen_init time. The CLI surface mirrors the
 // omnivoice.cpp tooling : kebab-case flags, --format wav16/wav24/wav32,
-// -o '-' streams to stdout, --seed -1 means non deterministic, the
-// utterance text comes from --text or stdin if --text is absent.
+// -o '-' streams to stdout, --seed -1 means non deterministic
+// (resolved inside qwen_synthesize), the utterance text comes from
+// --text or stdin if --text is absent.
 
 #include "audio-io.h"
-#include "backend.h"
-#include "bpe.h"
-#include "pipeline-tts.h"
-#include "utf8.h"
-#include "version.h"
+#include "qwen.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <memory>
-#include <random>
 #include <sstream>
-#include <stdexcept>
 #include <string>
 
+// Tokenizer sample rate for the 12 Hz Qwen3-TTS codec : 24 kHz. Used
+// by audio_read_mono to resample the optional --ref-audio file before
+// handing it to the facade. The output sample rate is reported by
+// qwen_audio.sample_rate after a successful synthesis.
+static const int QWEN_TTS_SAMPLE_RATE = 24000;
+
 static void print_usage(const char * prog) {
-    fprintf(stderr, "qwentts.cpp %s\n\n", QWEN_VERSION);
+    fprintf(stderr, "qwentts.cpp %s\n\n", qwen_version());
     fprintf(stderr,
             "Usage: %s --model <gguf> --codec <gguf> [options] -o <out.wav>\n\n"
             "Required:\n"
@@ -105,7 +107,7 @@ static std::string read_stdin_text() {
 
 // Read a small text file into a string. Trims trailing newlines.
 static bool read_text_file(const char * path, std::string & out) {
-    FILE * f = utf8_fopen(path, "rb");
+    FILE * f = fopen(path, "rb");
     if (!f) {
         fprintf(stderr, "[CLI] FATAL: cannot open '%s'\n", path);
         return false;
@@ -208,60 +210,18 @@ static bool parse_args(int argc, char ** argv, Args & a) {
 }
 
 static int run(const Args & a) {
-    BackendPair bp = backend_init("Talker");
+    // Init the facade. The seven mode validations
+    // (base / custom_voice / voice_design rules) and the BPE tokenizer
+    // load live inside qwen_init / qwen_synthesize ; the CLI just hands
+    // off the two GGUF paths and reports qwen_last_error on failure.
+    qwen_init_params iparams;
+    qwen_init_default_params(&iparams);
+    iparams.talker_path = a.model;
+    iparams.codec_path  = a.codec;
 
-    PipelineTTS pt = {};
-    if (!pipeline_tts_load(&pt, a.model, a.codec, bp)) {
-        backend_release(bp.backend, bp.cpu_backend);
-        return 1;
-    }
-
-    // Validate mode flag combination against the loaded model_type. The
-    // upstream Python raises ValueError when generate_voice_design is
-    // called on a non voice_design model and the same shape applies to
-    // generate_custom_voice. We mirror that here, explicit and KISS, so
-    // the user never gets a silently wrong synthesis.
-    const std::string mt = pt.model_type;
-    if (a.speaker && mt != "custom_voice") {
-        fprintf(stderr, "[CLI] ERROR: --speaker is only valid for custom_voice models (loaded: %s)\n", mt.c_str());
-        pipeline_tts_free(&pt);
-        backend_release(bp.backend, bp.cpu_backend);
-        return 1;
-    }
-    if (a.instruct && mt == "base") {
-        fprintf(stderr, "[CLI] ERROR: --instruct is not supported for base models\n");
-        pipeline_tts_free(&pt);
-        backend_release(bp.backend, bp.cpu_backend);
-        return 1;
-    }
-    if (mt == "custom_voice" && !a.speaker) {
-        fprintf(stderr, "[CLI] ERROR: custom_voice models require --speaker\n");
-        pipeline_tts_free(&pt);
-        backend_release(bp.backend, bp.cpu_backend);
-        return 1;
-    }
-    if (mt == "voice_design" && (!a.instruct || a.instruct[0] == '\0')) {
-        fprintf(stderr, "[CLI] ERROR: voice_design models require --instruct\n");
-        pipeline_tts_free(&pt);
-        backend_release(bp.backend, bp.cpu_backend);
-        return 1;
-    }
-    if (a.ref_audio && mt != "base") {
-        fprintf(stderr, "[CLI] ERROR: --ref-audio is only valid for base models (loaded: %s)\n", mt.c_str());
-        pipeline_tts_free(&pt);
-        backend_release(bp.backend, bp.cpu_backend);
-        return 1;
-    }
-    if (a.speaker && a.ref_audio) {
-        fprintf(stderr, "[CLI] ERROR: --speaker and --ref-audio are mutually exclusive\n");
-        pipeline_tts_free(&pt);
-        backend_release(bp.backend, bp.cpu_backend);
-        return 1;
-    }
-    if (a.ref_text_path && !a.ref_audio) {
-        fprintf(stderr, "[CLI] ERROR: --ref-text requires --ref-audio\n");
-        pipeline_tts_free(&pt);
-        backend_release(bp.backend, bp.cpu_backend);
+    qwen_context * q = qwen_init(&iparams);
+    if (!q) {
+        fprintf(stderr, "[CLI] ERROR: %s\n", qwen_last_error());
         return 1;
     }
 
@@ -271,37 +231,33 @@ static int run(const Args & a) {
     const char * ref_text = NULL;
     if (a.ref_text_path) {
         if (!read_text_file(a.ref_text_path, ref_text_buf)) {
-            pipeline_tts_free(&pt);
-            backend_release(bp.backend, bp.cpu_backend);
+            qwen_free(q);
             return 1;
         }
         if (ref_text_buf.empty()) {
             fprintf(stderr, "[CLI] ERROR: --ref-text file '%s' is empty\n", a.ref_text_path);
-            pipeline_tts_free(&pt);
-            backend_release(bp.backend, bp.cpu_backend);
+            qwen_free(q);
             return 1;
         }
         ref_text = ref_text_buf.c_str();
     }
 
     // Decode the reference WAV once, mono at the codec sample rate. The
-    // pipeline consumes the buffer directly so the WAV is read exactly
+    // facade consumes the buffer directly so the WAV is read exactly
     // once regardless of how many encoders need the audio (speaker
     // encoder embedding + codec encoder RVQ codes for ICL mode B).
-    std::vector<float>                       ref_audio_buf;
     std::unique_ptr<float, void (*)(void *)> raw_holder(NULL, std::free);
     const float *                            ref_audio_24k = NULL;
     int                                      ref_n_samples = 0;
     if (a.ref_audio) {
         int     T_in = 0;
-        float * raw  = audio_read_mono(a.ref_audio, QWEN_TOKENIZER_SAMPLE_RATE, &T_in);
+        float * raw  = audio_read_mono(a.ref_audio, QWEN_TTS_SAMPLE_RATE, &T_in);
         if (!raw || T_in <= 0) {
             fprintf(stderr, "[CLI] ERROR: cannot read --ref-audio '%s'\n", a.ref_audio);
             if (raw) {
                 std::free(raw);
             }
-            pipeline_tts_free(&pt);
-            backend_release(bp.backend, bp.cpu_backend);
+            qwen_free(q);
             return 1;
         }
         raw_holder.reset(raw);
@@ -314,8 +270,7 @@ static int run(const Args & a) {
     WavFormat wav_fmt;
     if (!audio_parse_format(a.format, wav_fmt)) {
         fprintf(stderr, "[CLI] ERROR: invalid --format '%s' (expected wav16, wav24, wav32)\n", a.format);
-        pipeline_tts_free(&pt);
-        backend_release(bp.backend, bp.cpu_backend);
+        qwen_free(q);
         return 1;
     }
 
@@ -327,91 +282,72 @@ static int run(const Args & a) {
         text_buf = read_stdin_text();
         if (text_buf.empty()) {
             fprintf(stderr, "[CLI] ERROR: no --text and stdin is empty\n");
-            pipeline_tts_free(&pt);
-            backend_release(bp.backend, bp.cpu_backend);
+            qwen_free(q);
             return 1;
         }
         text = text_buf.c_str();
     }
 
-    // Resolve seed : -1 means non deterministic, sample from a hardware
-    // random_device. Anything else is taken verbatim, including negative
-    // values reaching int64 range, so reproducibility is one --seed away.
-    int64_t seed = a.seed;
-    if (seed < 0) {
-        std::random_device rd;
-        seed = (int64_t) (((uint64_t) rd() << 32) ^ (uint64_t) rd());
-    }
+    // Translate CLI args into the facade params. Seed -1 is forwarded
+    // verbatim and resolved by qwen_synthesize via std::random_device.
+    qwen_tts_params params;
+    qwen_tts_default_params(&params);
+    params.text                  = text;
+    params.lang                  = a.lang;
+    params.instruct              = a.instruct;
+    params.speaker               = a.speaker;
+    params.ref_audio_24k         = ref_audio_24k;
+    params.ref_n_samples         = ref_n_samples;
+    params.ref_text              = ref_text;
+    params.seed                  = a.seed;
+    params.max_new_tokens        = a.max_new_tokens;
+    params.do_sample             = a.do_sample;
+    params.temperature           = a.temperature;
+    params.top_k                 = a.top_k;
+    params.top_p                 = a.top_p;
+    params.repetition_penalty    = a.repetition_penalty;
+    params.subtalker_do_sample   = a.subtalker_do_sample;
+    params.subtalker_temperature = a.subtalker_temperature;
+    params.subtalker_top_k       = a.subtalker_top_k;
+    params.subtalker_top_p       = a.subtalker_top_p;
+    params.dump_dir              = a.dump_dir;
 
-    BPETokenizer tok = {};
-    if (!load_bpe_from_gguf(&tok, a.model)) {
-        pipeline_tts_free(&pt);
-        backend_release(bp.backend, bp.cpu_backend);
-        return 1;
-    }
-    const char * specials_keys[] = {
-        "qwen3-tts.text.im_start_id", "qwen3-tts.text.im_end_id",  "qwen3-tts.text.tts_pad_id",
-        "qwen3-tts.text.tts_bos_id",  "qwen3-tts.text.tts_eos_id",
-    };
-    bpe_load_specials_from_keys(&tok, a.model, specials_keys, 5);
-
-    PipelineTTSSynthesizeParams p = {};
-    p.text                        = text;
-    p.lang                        = a.lang;
-    p.instruct                    = a.instruct;
-    p.speaker                     = a.speaker;
-    p.ref_audio_24k               = ref_audio_24k;
-    p.ref_n_samples               = ref_n_samples;
-    p.ref_text                    = ref_text;
-    p.seed                        = seed;
-    p.max_new_tokens              = a.max_new_tokens;
-    p.do_sample                   = a.do_sample;
-    p.temperature                 = a.temperature;
-    p.top_k                       = a.top_k;
-    p.top_p                       = a.top_p;
-    p.repetition_penalty          = a.repetition_penalty;
-    p.subtalker_do_sample         = a.subtalker_do_sample;
-    p.subtalker_temperature       = a.subtalker_temperature;
-    p.subtalker_top_k             = a.subtalker_top_k;
-    p.subtalker_top_p             = a.subtalker_top_p;
-    p.dump_dir                    = a.dump_dir;
-
-    PipelineTTSSynthesizeOutput out;
-    if (!pipeline_tts_synthesize(&pt, &tok, p, &out)) {
-        pipeline_tts_free(&pt);
-        backend_release(bp.backend, bp.cpu_backend);
+    qwen_audio  audio  = {};
+    qwen_status status = qwen_synthesize(q, &params, &audio);
+    if (status != QWEN_STATUS_OK) {
+        fprintf(stderr, "[CLI] ERROR: %s\n", qwen_last_error());
+        qwen_audio_free(&audio);
+        qwen_free(q);
         return 1;
     }
 
-    if (!out.audio.empty()) {
+    if (audio.n_samples > 0) {
         const char * out_path = a.out_wav ? a.out_wav : "out.wav";
-        if (!audio_write_wav(out_path, out.audio.data(), (int) out.audio.size(), out.sample_rate, wav_fmt)) {
+        if (!audio_write_wav(out_path, audio.samples, audio.n_samples, audio.sample_rate, wav_fmt)) {
             fprintf(stderr, "[Pipeline] FATAL: WAV write failed for %s\n", out_path);
-            pipeline_tts_free(&pt);
-            backend_release(bp.backend, bp.cpu_backend);
+            qwen_audio_free(&audio);
+            qwen_free(q);
             return 1;
         }
-        qt_log(QT_LOG_INFO, "[Pipeline] Wrote %zu samples (%.2f s) -> %s", out.audio.size(),
-               (double) out.audio.size() / (double) out.sample_rate, out_path);
+        fprintf(stderr, "[Pipeline] Wrote %d samples (%.2f s) -> %s\n", audio.n_samples,
+                (double) audio.n_samples / (double) audio.sample_rate, out_path);
     }
 
-    pipeline_tts_free(&pt);
-    backend_release(bp.backend, bp.cpu_backend);
+    qwen_audio_free(&audio);
+    qwen_free(q);
     return 0;
 }
 
 int main(int argc, char ** argv) {
-    utf8_init(&argc, &argv);
     Args a;
     if (!parse_args(argc, argv, a)) {
         print_usage(argv[0]);
         return 1;
     }
-    try {
-        return run(a);
-    } catch (const std::runtime_error & e) {
-        qt_set_error("%s", e.what());
-        qt_log(QT_LOG_ERROR, "%s", e.what());
-        return 1;
-    }
+    // The facade absorbs every std::exception thrown deep in the load
+    // and synthesis chains, converting them into qwen_status + a
+    // qwen_last_error message. No top-level try / catch needed here :
+    // the CLI just reads the status returned by qwen_init /
+    // qwen_synthesize and renders qwen_last_error to stderr.
+    return run(a);
 }
