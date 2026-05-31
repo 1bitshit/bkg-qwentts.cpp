@@ -1,4 +1,4 @@
-[Qwen] qwentts.cpp a62fde6 (2026-05-30)
+[Qwen] qwentts.cpp 5442c2f (2026-05-31)
 ggml_cuda_init: found 1 CUDA devices (Total VRAM: 97247 MiB):
   Device 0: NVIDIA RTX PRO 6000 Blackwell Workstation Edition, compute capability 12.0, VMM: yes, VRAM: 97247 MiB
 load_backend: loaded CUDA backend from /mnt/workspace/qwentts.cpp/build/libggml-cuda.so
@@ -94,6 +94,14 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Pipeline] Generation done : 64 frames
 [Debug] codes-full: [64, 16] first4: 1995.000000 1159.000000 355.000000 22.000000
 [Debug] output-audio: [122880] first4: 0.000016 0.000020 0.000016 0.000017
+[Perf] PromptBuild 51.2 ms
+[Perf] Prefill 10.4 ms (T_ctx prefill)
+[Perf] TTFA 76.3 ms (first frame codes)
+[Perf] TalkerDecode 237.8 ms (64 frames, 3.71 ms/frame)
+[Perf] CodePredictor 466.5 ms (7.29 ms/frame)
+[Perf] HostCompose 1.0 ms (c0 sample + next emb)
+[Perf] CodecDecode 44.0 ms
+[Perf] Total 811.7 ms (64 frames, 11.02 ms/frame AR, audio 5.12 s, RTF 0.159)
 [WAV] Wrote cpp/customvoice/customvoice-cpp.wav: 122880 samples, 24000 Hz, mono S16
 [Pipeline] Wrote 122880 samples (5.12 s) -> cpp/customvoice/customvoice-cpp.wav
 [Input] Prompt: 100 chars: qwentts.cpp is a minimal C++17 and GGML port of Qwen3-TTS fo...
@@ -112,14 +120,14 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Cossim] TrailingText cos: 1.000000 max: 1.3709e-06 mean: 9.3464e-09
 [Cossim] TTSPadEmbed cos: 1.000000 max: 1.3709e-06 mean: 9.3464e-09
 [Cossim] L0 cos: 0.999997 max: 1.4417e-01 mean: 2.6730e-04
-[Cossim] L7 cos: 0.999997 max: 1.8768e+01 mean: 3.1552e-03
-[Cossim] L14 cos: 0.999997 max: 1.8778e+01 mean: 6.3006e-03
-[Cossim] L21 cos: 0.999997 max: 1.8810e+01 mean: 2.0215e-02
+[Cossim] L7 cos: 0.999997 max: 1.8764e+01 mean: 3.1551e-03
+[Cossim] L14 cos: 0.999997 max: 1.8774e+01 mean: 6.3004e-03
+[Cossim] L21 cos: 0.999997 max: 1.8806e+01 mean: 2.0215e-02
 [Cossim] L27 cos: 0.999989 max: 3.2072e+01 mean: 1.0380e-01
-[Cossim] Final cos: 0.999964 max: 1.1374e+00 mean: 8.0261e-03
-[Cossim] Logits cos: 0.999992 max: 9.2689e-02 mean: 1.5266e-02
+[Cossim] Final cos: 0.999964 max: 1.1374e+00 mean: 8.0259e-03
+[Cossim] Logits cos: 0.999992 max: 9.2691e-02 mean: 1.5265e-02
 [Cossim] NextEmbStep0 cos: 1.000000 max: 1.3709e-06 mean: 9.4380e-09
-[Cossim] TalkerHiddenStep1 cos: 0.999990 max: 6.6821e-02 mean: 7.7880e-03
+[Cossim] TalkerHiddenStep1 cos: 0.999990 max: 6.6814e-02 mean: 7.7878e-03
 [Cossim] CodesFull exact: 15.87% (1008 values)
 [Cossim] Audio cos: 0.169467
 [Cossim] WAV stft_cos: 0.353257 samples: 120960

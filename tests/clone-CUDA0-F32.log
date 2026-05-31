@@ -1,4 +1,4 @@
-[Qwen] qwentts.cpp a62fde6 (2026-05-30)
+[Qwen] qwentts.cpp 5442c2f (2026-05-31)
 ggml_cuda_init: found 1 CUDA devices (Total VRAM: 97247 MiB):
   Device 0: NVIDIA RTX PRO 6000 Blackwell Workstation Edition, compute capability 12.0, VMM: yes, VRAM: 97247 MiB
 load_backend: loaded CUDA backend from /mnt/workspace/qwentts.cpp/build/libggml-cuda.so
@@ -120,6 +120,14 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Pipeline] Generation done : 64 frames
 [Debug] codes-full: [64, 16] first4: 27.000000 1408.000000 1824.000000 400.000000
 [Debug] output-audio: [122880] first4: -0.001265 -0.002192 -0.002047 -0.000956
+[Perf] PromptBuild 5.3 ms
+[Perf] Prefill 27.7 ms (T_ctx prefill)
+[Perf] TTFA 52.2 ms (first frame codes)
+[Perf] TalkerDecode 358.3 ms (64 frames, 5.60 ms/frame)
+[Perf] CodePredictor 559.6 ms (8.74 ms/frame)
+[Perf] HostCompose 1.2 ms (c0 sample + next emb)
+[Perf] CodecDecode 10.2 ms
+[Perf] Total 981.2 ms (64 frames, 14.36 ms/frame AR, audio 5.12 s, RTF 0.192)
 [WAV] Wrote cpp/clone/clone-cpp.wav: 122880 samples, 24000 Hz, mono S16
 [Pipeline] Wrote 122880 samples (5.12 s) -> cpp/clone/clone-cpp.wav
 [Input] Prompt: 100 chars: qwentts.cpp is a minimal C++17 and GGML port of Qwen3-TTS fo...
@@ -146,10 +154,10 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Cossim] L0 cos: 0.986912 max: 6.6445e-01 mean: 1.1103e-02
 [Cossim] L7 cos: 0.999992 max: 1.2569e+00 mean: 2.7510e-02
 [Cossim] L14 cos: 0.999973 max: 2.1781e+00 mean: 5.9937e-02
-[Cossim] L21 cos: 0.999718 max: 8.4985e+00 mean: 2.2272e-01
+[Cossim] L21 cos: 0.999718 max: 8.4983e+00 mean: 2.2272e-01
 [Cossim] L27 cos: 0.998969 max: 2.4365e+01 mean: 5.1191e-01
-[Cossim] Final cos: 0.994692 max: 7.4171e+00 mean: 1.6655e-01
-[Cossim] Logits cos: 0.999740 max: 5.7070e-01 mean: 8.9439e-02
+[Cossim] Final cos: 0.994692 max: 7.4170e+00 mean: 1.6655e-01
+[Cossim] Logits cos: 0.999740 max: 5.7071e-01 mean: 8.9440e-02
 [Cossim] NextEmbStep0 cos: 0.829216 max: 1.2523e-01 mean: 2.9129e-02
 [Cossim] TalkerHiddenStep1 cos: 0.993844 max: 1.4404e+00 mean: 2.4228e-01
 [Cossim] MelHann cos: 1.000000 max: 1.7881e-07 mean: 3.2043e-08
@@ -162,7 +170,7 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Cossim] SeanetStage1 cos: 0.999865 max: 7.6868e-01 mean: 4.9571e-03
 [Cossim] SeanetStage3 cos: 0.999995 max: 1.6565e+00 mean: 3.9086e-02
 [Cossim] SeanetOut cos: 0.999963 max: 4.1938e-01 mean: 1.7123e-02
-[Cossim] EncTransformer cos: 0.999975 max: 3.4209e-01 mean: 7.3239e-03
+[Cossim] EncTransformer cos: 0.999975 max: 3.4209e-01 mean: 7.3238e-03
 [Cossim] CodecPreFSQ cos: 0.999972 max: 4.4734e-01 mean: 1.8065e-02
 [Cossim] SpkFrontend cos: 1.000000 max: 2.1511e-04 mean: 1.4495e-06
 [Cossim] SpkBlock3 cos: 1.000000 max: 3.2926e-04 mean: 4.3974e-06

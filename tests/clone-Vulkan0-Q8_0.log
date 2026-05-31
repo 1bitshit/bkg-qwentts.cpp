@@ -1,4 +1,4 @@
-[Qwen] qwentts.cpp a62fde6 (2026-05-30)
+[Qwen] qwentts.cpp 5442c2f (2026-05-31)
 ggml_cuda_init: found 1 CUDA devices (Total VRAM: 97247 MiB):
   Device 0: NVIDIA RTX PRO 6000 Blackwell Workstation Edition, compute capability 12.0, VMM: yes, VRAM: 97247 MiB
 load_backend: loaded CUDA backend from /mnt/workspace/qwentts.cpp/build/libggml-cuda.so
@@ -120,6 +120,14 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Pipeline] Generation done : 64 frames
 [Debug] codes-full: [64, 16] first4: 27.000000 1408.000000 1824.000000 400.000000
 [Debug] output-audio: [122880] first4: -0.001815 -0.003137 -0.002853 -0.001444
+[Perf] PromptBuild 6.1 ms
+[Perf] Prefill 2022.5 ms (T_ctx prefill)
+[Perf] TTFA 2035.6 ms (first frame codes)
+[Perf] TalkerDecode 185.1 ms (64 frames, 2.89 ms/frame)
+[Perf] CodePredictor 348.3 ms (5.44 ms/frame)
+[Perf] HostCompose 1.4 ms (c0 sample + next emb)
+[Perf] CodecDecode 13.7 ms
+[Perf] Total 2578.2 ms (64 frames, 8.36 ms/frame AR, audio 5.12 s, RTF 0.504)
 [WAV] Wrote cpp/clone/clone-cpp.wav: 122880 samples, 24000 Hz, mono S16
 [Pipeline] Wrote 122880 samples (5.12 s) -> cpp/clone/clone-cpp.wav
 [Input] Prompt: 100 chars: qwentts.cpp is a minimal C++17 and GGML port of Qwen3-TTS fo...
@@ -144,12 +152,12 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Cossim] TrailingText cos: 0.999999 max: 2.1233e-04 mean: 4.3863e-05
 [Cossim] TTSPadEmbed cos: 0.999999 max: 2.1233e-04 mean: 4.3863e-05
 [Cossim] L0 cos: 0.985827 max: 7.7038e-01 mean: 1.1813e-02
-[Cossim] L7 cos: 0.999979 max: 5.4033e+00 mean: 3.6052e-02
-[Cossim] L14 cos: 0.999957 max: 5.4258e+00 mean: 7.0614e-02
+[Cossim] L7 cos: 0.999979 max: 5.4026e+00 mean: 3.6052e-02
+[Cossim] L14 cos: 0.999957 max: 5.4250e+00 mean: 7.0614e-02
 [Cossim] L21 cos: 0.999606 max: 1.8712e+01 mean: 2.5038e-01
-[Cossim] L27 cos: 0.998546 max: 5.4981e+01 mean: 5.6873e-01
+[Cossim] L27 cos: 0.998546 max: 5.4983e+01 mean: 5.6873e-01
 [Cossim] Final cos: 0.992861 max: 1.9019e+01 mean: 1.7999e-01
-[Cossim] Logits cos: 0.999574 max: 7.9584e-01 mean: 1.0646e-01
+[Cossim] Logits cos: 0.999574 max: 7.9585e-01 mean: 1.0646e-01
 [Cossim] NextEmbStep0 cos: 0.848334 max: 2.7271e-01 mean: 2.8037e-02
 [Cossim] TalkerHiddenStep1 cos: 0.993791 max: 1.5125e+00 mean: 2.3976e-01
 [Cossim] MelHann cos: 1.000000 max: 1.7881e-07 mean: 3.2043e-08

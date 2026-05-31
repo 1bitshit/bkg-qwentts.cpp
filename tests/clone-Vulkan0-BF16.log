@@ -1,4 +1,4 @@
-[Qwen] qwentts.cpp a62fde6 (2026-05-30)
+[Qwen] qwentts.cpp 5442c2f (2026-05-31)
 ggml_cuda_init: found 1 CUDA devices (Total VRAM: 97247 MiB):
   Device 0: NVIDIA RTX PRO 6000 Blackwell Workstation Edition, compute capability 12.0, VMM: yes, VRAM: 97247 MiB
 load_backend: loaded CUDA backend from /mnt/workspace/qwentts.cpp/build/libggml-cuda.so
@@ -120,6 +120,14 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Pipeline] Generation done : 64 frames
 [Debug] codes-full: [64, 16] first4: 27.000000 1408.000000 1824.000000 400.000000
 [Debug] output-audio: [122880] first4: -0.001651 -0.002839 -0.002671 -0.001491
+[Perf] PromptBuild 6.6 ms
+[Perf] Prefill 31.8 ms (T_ctx prefill)
+[Perf] TTFA 47.0 ms (first frame codes)
+[Perf] TalkerDecode 236.2 ms (64 frames, 3.69 ms/frame)
+[Perf] CodePredictor 426.7 ms (6.67 ms/frame)
+[Perf] HostCompose 1.3 ms (c0 sample + next emb)
+[Perf] CodecDecode 15.5 ms
+[Perf] Total 719.1 ms (64 frames, 10.38 ms/frame AR, audio 5.12 s, RTF 0.140)
 [WAV] Wrote cpp/clone/clone-cpp.wav: 122880 samples, 24000 Hz, mono S16
 [Pipeline] Wrote 122880 samples (5.12 s) -> cpp/clone/clone-cpp.wav
 [Input] Prompt: 100 chars: qwentts.cpp is a minimal C++17 and GGML port of Qwen3-TTS fo...
@@ -144,8 +152,8 @@ load_backend: loaded CPU backend from /mnt/workspace/qwentts.cpp/build/libggml-c
 [Cossim] TrailingText cos: 1.000000 max: 1.0431e-06 mean: 9.3737e-09
 [Cossim] TTSPadEmbed cos: 1.000000 max: 1.0431e-06 mean: 9.3737e-09
 [Cossim] L0 cos: 0.983221 max: 7.7033e-01 mean: 1.3992e-02
-[Cossim] L7 cos: 0.999989 max: 1.2870e+01 mean: 3.3232e-02
-[Cossim] L14 cos: 0.999964 max: 1.2874e+01 mean: 7.1829e-02
+[Cossim] L7 cos: 0.999989 max: 1.2872e+01 mean: 3.3232e-02
+[Cossim] L14 cos: 0.999964 max: 1.2875e+01 mean: 7.1829e-02
 [Cossim] L21 cos: 0.999531 max: 1.6985e+01 mean: 2.8083e-01
 [Cossim] L27 cos: 0.998207 max: 4.0575e+01 mean: 6.4222e-01
 [Cossim] Final cos: 0.990651 max: 1.5852e+01 mean: 2.0918e-01
