@@ -3,8 +3,9 @@
 // POST /v1/audio/speech. The shared core lives in src/tts-server.h ; this
 // file only wires the qt_* ABI into the generic adapter.
 
-#include "qwen.h"
 #include "tts-server.h"
+
+#include "qwen.h"
 #include "version.h"
 
 #include <cstdio>
