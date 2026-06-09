@@ -161,6 +161,7 @@ static bool project_text_ids_backend(PipelineTTS * pt, const int32_t * ids, int 
     struct ggml_cgraph * graph = ggml_new_graph_custom(gctx, max_nodes, false);
     ggml_build_forward_expand(graph, out);
 
+    ggml_backend_sched_reset(pt->sched);
     if (!ggml_backend_sched_alloc_graph(pt->sched, graph)) {
         ggml_backend_sched_reset(pt->sched);
         ggml_free(gctx);
@@ -244,6 +245,7 @@ static void project_ref_codes_backend(PipelineTTS * pt, const int32_t * ref_code
     struct ggml_cgraph * graph = ggml_new_graph_custom(gctx, max_nodes, false);
     ggml_build_forward_expand(graph, sum);
 
+    ggml_backend_sched_reset(pt->sched);
     if (!ggml_backend_sched_alloc_graph(pt->sched, graph)) {
         ggml_backend_sched_reset(pt->sched);
         ggml_free(gctx);

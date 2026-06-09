@@ -240,6 +240,7 @@ static bool code_predictor_run(const CodePredictorWeights * cw,
     ggml_set_output(logits);
     ggml_build_forward_expand(gf, logits);
 
+    ggml_backend_sched_reset(sched);
     if (!ggml_backend_sched_alloc_graph(sched, gf)) {
         fprintf(stderr, "[CodePredictor] FATAL: graph allocation failed\n");
         ggml_backend_sched_reset(sched);
