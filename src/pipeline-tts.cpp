@@ -583,6 +583,11 @@ qt_status pipeline_tts_synthesize(PipelineTTS *                pt,
     codec_chunked_decoder_stream stream;
     if (streaming) {
         stream.init(num_codebooks, chunk_frames, left_ctx_frames);
+        // ICL clone: the reference tail seeds the decoder left context
+        // so the onset is voiced with the reference's causal state.
+        if (ref_codes_ptr != NULL) {
+            stream.seed_reference(ref_codes_ptr, ref_codes_T);
+        }
     }
 
     for (int step = 0; step < params->max_new_tokens; step++) {
@@ -794,22 +799,41 @@ qt_status pipeline_tts_synthesize(PipelineTTS *                pt,
     // equivalent to a single pipeline_codec_decode call when T_frames
     // fits in one chunk, bounded VRAM beyond that. Transpose codes from
     // [T_frames, K] to [K, T_frames] because codec_chunked_decode
-    // expects K major layout.
-    const int            T_frames = (int) all_codes.size();
-    std::vector<int32_t> codes_kt((size_t) num_codebooks * (size_t) T_frames);
-    for (int t = 0; t < T_frames; t++) {
-        for (int k = 0; k < num_codebooks; k++) {
-            codes_kt[(size_t) k * (size_t) T_frames + (size_t) t] = all_codes[(size_t) t][(size_t) k];
+    // expects K major layout. On the ICL clone path the tail of the
+    // reference codes prepends the buffer so the onset is voiced with
+    // the reference's causal state, mirroring the upstream pipeline
+    // which decodes reference plus generated then trims; the seeded
+    // samples strip from the front afterwards. Raising
+    // codec_left_context_sec past the reference duration reproduces the
+    // upstream full reference decode exactly.
+    const int T_frames = (int) all_codes.size();
+    int       seed     = 0;
+    if (ref_codes_ptr != NULL) {
+        seed = ref_codes_T < left_ctx_frames ? ref_codes_T : left_ctx_frames;
+    }
+    const int            T_dec = seed + T_frames;
+    std::vector<int32_t> codes_kt((size_t) num_codebooks * (size_t) T_dec);
+    for (int k = 0; k < num_codebooks; k++) {
+        int32_t * row = codes_kt.data() + (size_t) k * (size_t) T_dec;
+        if (seed > 0) {
+            std::memcpy(row, ref_codes_ptr + (size_t) k * (size_t) ref_codes_T + (size_t) (ref_codes_T - seed),
+                        (size_t) seed * sizeof(int32_t));
+        }
+        for (int t = 0; t < T_frames; t++) {
+            row[(size_t) (seed + t)] = all_codes[(size_t) t][(size_t) k];
         }
     }
     Timer              t_codec;
     std::vector<float> audio =
-        codec_chunked_decode(&pt->codec, codes_kt.data(), num_codebooks, T_frames, chunk_frames, left_ctx_frames);
+        codec_chunked_decode(&pt->codec, codes_kt.data(), num_codebooks, T_dec, chunk_frames, left_ctx_frames);
     perf.codec_ms += t_codec.ms();
     if (audio.empty()) {
         qt_set_error("pipeline_tts_synthesize: codec decode returned no audio");
         qt_log(QT_LOG_ERROR, "[Pipeline] codec decode returned no audio");
         return QT_STATUS_GENERATE_FAILED;
+    }
+    if (seed > 0) {
+        audio.erase(audio.begin(), audio.begin() + (size_t) seed * (size_t) TOKENIZER_HOP_LENGTH);
     }
 
     if (params->dump_dir) {
