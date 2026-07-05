@@ -199,7 +199,8 @@ int main(int argc, char ** argv) {
     // the shared sink, which either streams to the socket (pcm) or fills a
     // one-shot buffer (wav). Either way the audio path is identical. A
     // registered voice wins over a model speaker of the same name and
-    // injects the pre-extracted reference latents.
+    // injects the pre-extracted reference latents. A name matching
+    // neither is rejected instead of silently generating voiceless.
     be.synthesize = [q, &lang](const tts_request & req, const tts_sink & sink, std::string & err) -> int {
         struct qt_tts_params p;
         qt_tts_default_params(&p);
@@ -218,6 +219,9 @@ int main(int argc, char ** argv) {
             }
         } else if (!req.voice.empty() && qt_n_speakers(q) > 0) {
             p.speaker = req.voice.c_str();
+        } else if (!req.voice.empty()) {
+            err = "unknown voice '" + req.voice + "'";
+            return (int) QT_STATUS_INVALID_PARAMS;
         }
         if (!req.instructions.empty()) {
             p.instruct = req.instructions.c_str();
