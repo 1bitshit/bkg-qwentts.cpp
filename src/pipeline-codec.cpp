@@ -245,6 +245,15 @@ static bool pipeline_codec_stream_ensure(PipelineCodec * pc) {
         return false;
     }
 
+    // The ring must hold the whole sliding window plus the fresh frame,
+    // otherwise window slots alias through the modulo and corrupt the
+    // attention silently.
+    if (pc->transformer.sliding_window + 1 > CODEC_STREAM_RING) {
+        qt_log(QT_LOG_ERROR, "[Pipeline] sliding window %d exceeds KV ring %d", pc->transformer.sliding_window,
+               CODEC_STREAM_RING);
+        return false;
+    }
+
     if (!kv_cache_init(&pc->stream_kv, pc->transformer.num_layers, pc->transformer.num_kv_heads,
                        pc->transformer.head_dim, CODEC_STREAM_RING, pc->backend)) {
         ggml_backend_buffer_free(pc->stream_buf);
