@@ -49,6 +49,23 @@
 // Primed stream state snapshots kept per reference, LRU evicted.
 static const int CODEC_SNAP_SLOTS = 8;
 
+// Chunk width classes of the streaming decode: T in {1, 2, 4, 8}.
+static const int CODEC_STREAM_CLASSES = 4;
+
+// One static stream graph of chunk width T: built once, allocated
+// once, replayed with per chunk uploads of codes, positions, ring
+// rows, and the sliding window mask.
+struct CodecStreamGraph {
+    struct ggml_context * ctx    = nullptr;
+    struct ggml_cgraph *  gf     = nullptr;
+    ggml_gallocr_t        galloc = nullptr;
+    struct ggml_tensor *  codes  = nullptr;
+    struct ggml_tensor *  pos    = nullptr;
+    struct ggml_tensor *  rows   = nullptr;
+    struct ggml_tensor *  mask   = nullptr;
+    struct ggml_tensor *  out    = nullptr;
+};
+
 // One primed stream state snapshot: a mirror of every conv context and
 // KV ring tensor in a single backend buffer, plus the host position
 // cursor. key is the content hash of the reference codes, stamp orders
@@ -112,14 +129,11 @@ struct PipelineCodec {
     // constant, so the graph builds and allocates once and every frame
     // is input uploads + one backend compute + one readback. The single
     // backend runs the whole graph, no scheduler involved.
-    struct ggml_context * stream_graph_ctx;
-    struct ggml_cgraph *  stream_gf;
-    ggml_gallocr_t        stream_galloc;
-    struct ggml_tensor *  stream_in_codes;
-    struct ggml_tensor *  stream_in_pos;
-    struct ggml_tensor *  stream_in_rows;
-    struct ggml_tensor *  stream_in_mask;
-    struct ggml_tensor *  stream_out;
+    // Static stream graphs, one per chunk width class (T = 1 << cls).
+    // Every class shares the stream state and KV ring tensors above;
+    // only the input shapes and the intermediates differ. Classes
+    // build lazily on their first decode.
+    CodecStreamGraph stream_graphs[CODEC_STREAM_CLASSES];
 
     // Snapshot LRU over the stream state: after an ICL reference
     // priming the conv contexts, KV ring, and position copy device to
@@ -163,7 +177,11 @@ bool pipeline_codec_stream_reset(PipelineCodec * pc);
 // as a side effect. When audio_out is non NULL the frame's
 // TOKENIZER_HOP_LENGTH samples copy into it; a NULL audio_out primes
 // the state without a readback (ICL reference priming).
-bool pipeline_codec_decode_stream(PipelineCodec * pc, const int32_t * codes, float * audio_out);
+// Decode one chunk of T frames (T in {1, 2, 4, 8}) through the
+// persistent stream state. codes is [T, K] with T contiguous per
+// codebook; audio_out receives T * TOKENIZER_HOP_LENGTH samples, NULL
+// discards the audio (reference priming).
+bool pipeline_codec_decode_stream(PipelineCodec * pc, const int32_t * codes, int T, float * audio_out);
 
 // Content hash of an ICL reference, the snapshot LRU key.
 //   codes: flat int32, [K, T] row-major.

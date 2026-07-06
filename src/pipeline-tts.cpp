@@ -833,10 +833,18 @@ qt_status pipeline_tts_synthesize(PipelineTTS *                pt,
         debug_dump_i32_as_f32(&d, "codes-full", flat.data(), shape, 2);
     }
 
-    // Streaming tail: nothing to drain, every frame already emitted at
-    // generation time through the stateful decoder. The buffered output
-    // stays empty in this branch.
+    // Streaming tail: drain the sub chunk remainder of the ramp, then
+    // finish with an empty buffered output.
     if (streaming) {
+        if (!stream.drain(&pt->codec, params->on_chunk, params->on_chunk_user_data)) {
+            if (stream.cancelled) {
+                qt_log(QT_LOG_INFO, "[Pipeline] on_chunk callback aborted the synthesis");
+                return QT_STATUS_CANCELLED;
+            }
+            qt_set_error("pipeline_tts_synthesize: streaming codec drain failed");
+            qt_log(QT_LOG_ERROR, "[Pipeline] streaming codec drain failed");
+            return QT_STATUS_GENERATE_FAILED;
+        }
         out->samples     = NULL;
         out->n_samples   = 0;
         out->sample_rate = TOKENIZER_SAMPLE_RATE;

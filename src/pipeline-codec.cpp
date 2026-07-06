@@ -21,16 +21,16 @@
 #include <vector>
 
 bool pipeline_codec_load(PipelineCodec * pc, const char * gguf_path, BackendPair bp) {
-    pc->bp               = bp;
-    pc->backend          = bp.backend;
-    pc->qenc_host_ready  = false;
-    pc->stream_ready     = false;
-    pc->stream_ctx       = NULL;
-    pc->stream_buf       = NULL;
-    pc->stream_pos       = 0;
-    pc->stream_graph_ctx = NULL;
-    pc->stream_gf        = NULL;
-    pc->stream_galloc    = NULL;
+    pc->bp              = bp;
+    pc->backend         = bp.backend;
+    pc->qenc_host_ready = false;
+    pc->stream_ready    = false;
+    pc->stream_ctx      = NULL;
+    pc->stream_buf      = NULL;
+    pc->stream_pos      = 0;
+    for (int i = 0; i < CODEC_STREAM_CLASSES; i++) {
+        pc->stream_graphs[i] = {};
+    }
     for (int i = 0; i < CODEC_SNAP_SLOTS; i++) {
         pc->snaps[i] = {};
     }
@@ -267,87 +267,6 @@ static bool pipeline_codec_stream_ensure(PipelineCodec * pc) {
         return false;
     }
 
-    // Build the static T=1 frame graph once: fixed topology, fixed
-    // tensor addresses, computed directly on the backend every frame.
-    {
-        const int               max_nodes = 4096;
-        struct ggml_init_params gp2       = {
-            ggml_tensor_overhead() * (size_t) max_nodes + ggml_graph_overhead_custom(max_nodes, false),
-            NULL,
-            true,
-        };
-        pc->stream_graph_ctx = ggml_init(gp2);
-        if (!pc->stream_graph_ctx) {
-            qt_log(QT_LOG_ERROR, "[Pipeline] stream graph ggml_init failed");
-            kv_cache_free(&pc->stream_kv);
-            ggml_backend_buffer_free(pc->stream_buf);
-            pc->stream_buf = NULL;
-            ggml_free(pc->stream_ctx);
-            pc->stream_ctx = NULL;
-            return false;
-        }
-
-        struct ggml_context * gctx = pc->stream_graph_ctx;
-        struct ggml_cgraph *  gf   = ggml_new_graph_custom(gctx, max_nodes, false);
-
-        const int ring = CODEC_STREAM_RING;
-        const int K    = TOKENIZER_NUM_CODEBOOKS;
-
-        struct ggml_tensor * codes_in = ggml_new_tensor_2d(gctx, GGML_TYPE_I32, 1, K);
-        struct ggml_tensor * pos_in   = ggml_new_tensor_1d(gctx, GGML_TYPE_I32, 1);
-        struct ggml_tensor * rows_in  = ggml_new_tensor_1d(gctx, GGML_TYPE_I64, 1);
-        struct ggml_tensor * mask_in  = ggml_new_tensor_2d(gctx, GGML_TYPE_F32, ring, 1);
-        ggml_set_name(codes_in, "codes_in");
-        ggml_set_name(pos_in, "positions");
-        ggml_set_name(rows_in, "kv_rows");
-        ggml_set_name(mask_in, "ring_mask");
-        ggml_set_input(codes_in);
-        ggml_set_input(pos_in);
-        ggml_set_input(rows_in);
-        ggml_set_input(mask_in);
-
-        // Same module chain as pipeline_codec_decode with the stateful
-        // variants threaded through the persistent stream tensors. The
-        // quantizer uses the alignment safe variant: no scheduler input
-        // duplication happens on the direct backend compute path.
-        struct ggml_tensor * h = quant_decode_stream(gctx, &pc->qdec, codes_in);  // [512, 1] C-first
-        h                      = ggml_cont(gctx, ggml_transpose(gctx, h));        // [1, 512] T-first
-        h = qwen_causal_conv1d_stream(gctx, gf, pc->pre_conv_w, pc->pre_conv_b, h, 3, 1, pc->stream_pre_conv);
-        h = ggml_cont(gctx, ggml_transpose(gctx, h));                             // [1024, 1] C-first
-        h = tok_trans_forward_stream(gctx, gf, &pc->transformer, h, pos_in, mask_in, rows_in, &pc->stream_kv);
-        h = ggml_cont(gctx, ggml_transpose(gctx, h));                             // [1, 1024] T-first
-        h = upsample_stage_forward_stream(gctx, gf, &pc->upsample, h, &pc->stream_up);
-        h = dac_decoder_forward_stream(gctx, gf, &pc->dac, h, &pc->stream_dac);
-        h = ggml_clamp(gctx, h, -1.0f, 1.0f);
-        ggml_set_name(h, "audio_out");
-        ggml_set_output(h);
-        ggml_build_forward_expand(gf, h);
-
-        pc->stream_galloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(pc->backend));
-        if (!pc->stream_galloc || !ggml_gallocr_alloc_graph(pc->stream_galloc, gf)) {
-            qt_log(QT_LOG_ERROR, "[Pipeline] stream graph allocation failed");
-            if (pc->stream_galloc) {
-                ggml_gallocr_free(pc->stream_galloc);
-                pc->stream_galloc = NULL;
-            }
-            ggml_free(pc->stream_graph_ctx);
-            pc->stream_graph_ctx = NULL;
-            kv_cache_free(&pc->stream_kv);
-            ggml_backend_buffer_free(pc->stream_buf);
-            pc->stream_buf = NULL;
-            ggml_free(pc->stream_ctx);
-            pc->stream_ctx = NULL;
-            return false;
-        }
-
-        pc->stream_gf       = gf;
-        pc->stream_in_codes = codes_in;
-        pc->stream_in_pos   = pos_in;
-        pc->stream_in_rows  = rows_in;
-        pc->stream_in_mask  = mask_in;
-        pc->stream_out      = h;
-    }
-
     pc->stream_ready = true;
     qt_log(QT_LOG_INFO, "[Pipeline] Codec stream state ready: %d conv contexts, KV ring %d", n_state - 4,
            CODEC_STREAM_RING);
@@ -470,35 +389,135 @@ bool pipeline_codec_stream_snapshot(PipelineCodec * pc, uint64_t key) {
     return true;
 }
 
-bool pipeline_codec_decode_stream(PipelineCodec * pc, const int32_t * codes, float * audio_out) {
+// Build the static stream graph of chunk width T = 1 << cls: the
+// same module chain as the T=1 frame graph, every stream state and
+// KV ring tensor shared across classes, inputs and intermediates
+// sized for T.
+static bool codec_stream_graph_ensure(PipelineCodec * pc, int cls) {
+    CodecStreamGraph * sg = &pc->stream_graphs[cls];
+    if (sg->ctx) {
+        return true;
+    }
+    const int T    = 1 << cls;
+    const int ring = CODEC_STREAM_RING;
+    const int K    = TOKENIZER_NUM_CODEBOOKS;
+
+    // The ring must hold the sliding window plus the whole fresh chunk.
+    if (pc->transformer.sliding_window + T > ring) {
+        qt_log(QT_LOG_ERROR, "[Pipeline] sliding window %d plus chunk %d exceeds KV ring %d",
+               pc->transformer.sliding_window, T, ring);
+        return false;
+    }
+
+    const int               max_nodes = 4096;
+    struct ggml_init_params gp        = {
+        ggml_tensor_overhead() * (size_t) max_nodes + ggml_graph_overhead_custom(max_nodes, false),
+        NULL,
+        true,
+    };
+    sg->ctx = ggml_init(gp);
+    if (!sg->ctx) {
+        qt_log(QT_LOG_ERROR, "[Pipeline] stream graph ggml_init failed (T=%d)", T);
+        return false;
+    }
+    struct ggml_context * gctx = sg->ctx;
+    struct ggml_cgraph *  gf   = ggml_new_graph_custom(gctx, max_nodes, false);
+
+    struct ggml_tensor * codes_in = ggml_new_tensor_2d(gctx, GGML_TYPE_I32, T, K);
+    struct ggml_tensor * pos_in   = ggml_new_tensor_1d(gctx, GGML_TYPE_I32, T);
+    struct ggml_tensor * rows_in  = ggml_new_tensor_1d(gctx, GGML_TYPE_I64, T);
+    struct ggml_tensor * mask_in  = ggml_new_tensor_2d(gctx, GGML_TYPE_F32, ring, T);
+    ggml_set_name(codes_in, "codes_in");
+    ggml_set_name(pos_in, "positions");
+    ggml_set_name(rows_in, "kv_rows");
+    ggml_set_name(mask_in, "ring_mask");
+    ggml_set_input(codes_in);
+    ggml_set_input(pos_in);
+    ggml_set_input(rows_in);
+    ggml_set_input(mask_in);
+
+    // Same module chain as pipeline_codec_decode with the stateful
+    // variants threaded through the persistent stream tensors. The
+    // quantizer uses the alignment safe variant: no scheduler input
+    // duplication happens on the direct backend compute path.
+    struct ggml_tensor * h = quant_decode_stream(gctx, &pc->qdec, codes_in);  // [512, T] C-first
+    h                      = ggml_cont(gctx, ggml_transpose(gctx, h));        // [T, 512] T-first
+    h = qwen_causal_conv1d_stream(gctx, gf, pc->pre_conv_w, pc->pre_conv_b, h, 3, 1, pc->stream_pre_conv);
+    h = ggml_cont(gctx, ggml_transpose(gctx, h));                             // [1024, T] C-first
+    h = tok_trans_forward_stream(gctx, gf, &pc->transformer, h, pos_in, mask_in, rows_in, &pc->stream_kv);
+    h = ggml_cont(gctx, ggml_transpose(gctx, h));                             // [T, 1024] T-first
+    h = upsample_stage_forward_stream(gctx, gf, &pc->upsample, h, &pc->stream_up);
+    h = dac_decoder_forward_stream(gctx, gf, &pc->dac, h, &pc->stream_dac);
+    h = ggml_clamp(gctx, h, -1.0f, 1.0f);
+    ggml_set_name(h, "audio_out");
+    ggml_set_output(h);
+    ggml_build_forward_expand(gf, h);
+
+    sg->galloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(pc->backend));
+    if (!sg->galloc || !ggml_gallocr_alloc_graph(sg->galloc, gf)) {
+        qt_log(QT_LOG_ERROR, "[Pipeline] stream graph allocation failed (T=%d)", T);
+        if (sg->galloc) {
+            ggml_gallocr_free(sg->galloc);
+        }
+        ggml_free(sg->ctx);
+        *sg = {};
+        return false;
+    }
+
+    sg->gf    = gf;
+    sg->codes = codes_in;
+    sg->pos   = pos_in;
+    sg->rows  = rows_in;
+    sg->mask  = mask_in;
+    sg->out   = h;
+    return true;
+}
+
+bool pipeline_codec_decode_stream(PipelineCodec * pc, const int32_t * codes, int T, float * audio_out) {
     const int K    = TOKENIZER_NUM_CODEBOOKS;
     const int ring = CODEC_STREAM_RING;
 
-    ggml_backend_tensor_set(pc->stream_in_codes, codes, 0, (size_t) K * sizeof(int32_t));
+    int cls = 0;
+    while ((1 << cls) < T) {
+        cls++;
+    }
+    if (cls >= CODEC_STREAM_CLASSES || (1 << cls) != T) {
+        qt_log(QT_LOG_ERROR, "[Pipeline] invalid stream chunk width %d", T);
+        return false;
+    }
+    if (!codec_stream_graph_ensure(pc, cls)) {
+        return false;
+    }
+    CodecStreamGraph * sg = &pc->stream_graphs[cls];
 
-    int32_t pos = pc->stream_pos;
-    ggml_backend_tensor_set(pc->stream_in_pos, &pos, 0, sizeof(int32_t));
+    ggml_backend_tensor_set(sg->codes, codes, 0, (size_t) T * (size_t) K * sizeof(int32_t));
 
-    int64_t row = (int64_t) (pc->stream_pos % ring);
-    ggml_backend_tensor_set(pc->stream_in_rows, &row, 0, sizeof(int64_t));
+    std::vector<int32_t> pos((size_t) T);
+    std::vector<int64_t> rows((size_t) T);
+    for (int t = 0; t < T; t++) {
+        pos[(size_t) t]  = pc->stream_pos + t;
+        rows[(size_t) t] = (int64_t) ((pc->stream_pos + t) % ring);
+    }
+    ggml_backend_tensor_set(sg->pos, pos.data(), 0, (size_t) T * sizeof(int32_t));
+    ggml_backend_tensor_set(sg->rows, rows.data(), 0, (size_t) T * sizeof(int64_t));
 
     std::vector<float> mask_buf;
-    tok_trans_build_stream_mask(pc->stream_pos, 1, ring, pc->transformer.sliding_window, mask_buf);
-    ggml_backend_tensor_set(pc->stream_in_mask, mask_buf.data(), 0, mask_buf.size() * sizeof(float));
+    tok_trans_build_stream_mask(pc->stream_pos, T, ring, pc->transformer.sliding_window, mask_buf);
+    ggml_backend_tensor_set(sg->mask, mask_buf.data(), 0, mask_buf.size() * sizeof(float));
 
-    enum ggml_status st = ggml_backend_graph_compute(pc->backend, pc->stream_gf);
+    enum ggml_status st = ggml_backend_graph_compute(pc->backend, sg->gf);
     if (st != GGML_STATUS_SUCCESS) {
         qt_log(QT_LOG_ERROR, "[Pipeline] stream graph_compute status=%d", (int) st);
         return false;
     }
 
     if (audio_out) {
-        ggml_backend_tensor_get(pc->stream_out, audio_out, 0, (size_t) TOKENIZER_HOP_LENGTH * sizeof(float));
+        ggml_backend_tensor_get(sg->out, audio_out, 0, (size_t) T * (size_t) TOKENIZER_HOP_LENGTH * sizeof(float));
     }
 
-    // The state tensors and the graph allocation persist into the next
-    // frame.
-    pc->stream_pos++;
+    // The state tensors and every class allocation persist into the
+    // next chunk.
+    pc->stream_pos += T;
     return true;
 }
 
@@ -755,11 +774,16 @@ void pipeline_codec_free(PipelineCodec * pc) {
     }
     graph_arena_free(&pc->dec_arena);
     if (pc->stream_ready) {
-        ggml_gallocr_free(pc->stream_galloc);
-        pc->stream_galloc = NULL;
-        ggml_free(pc->stream_graph_ctx);
-        pc->stream_graph_ctx = NULL;
-        pc->stream_gf        = NULL;
+        for (int i = 0; i < CODEC_STREAM_CLASSES; i++) {
+            CodecStreamGraph * sg = &pc->stream_graphs[i];
+            if (sg->galloc) {
+                ggml_gallocr_free(sg->galloc);
+            }
+            if (sg->ctx) {
+                ggml_free(sg->ctx);
+            }
+            *sg = {};
+        }
         kv_cache_free(&pc->stream_kv);
         ggml_backend_buffer_free(pc->stream_buf);
         pc->stream_buf = NULL;
