@@ -24,6 +24,7 @@
 
 #include "../vendor/cpp-httplib/httplib.h"
 #include "audio-io.h"
+#include "tts-web-ui.h"
 #include "yyjson.h"
 
 #include <cfloat>
@@ -513,6 +514,9 @@ static int tts_server_run(const tts_backend & be, const server_config & cfg) {
         res.set_header("Access-Control-Allow-Headers", "Content-Type");
     });
 
+    svr.Get("/", [](const httplib::Request &, httplib::Response & res) {
+        res.set_content(TTS_WEB_UI, "text/html; charset=utf-8");
+    });
     svr.Post("/v1/audio/speech",
              [&be](const httplib::Request & req, httplib::Response & res) { tts_handle_speech(be, req, res); });
     svr.Get("/v1/models",
