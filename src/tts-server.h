@@ -64,10 +64,21 @@ struct tts_request {
 // reference transcript enabling ICL clone mode when present.
 struct tts_voice_upload {
     std::string name;
+    std::string display_name;
+    std::string description;
+    std::string domain;
     std::string ref_text;
     std::string wav;  // WAV file bytes
     std::string spk;  // .spk file bytes, raw f32 values
     std::string rvq;  // .rvq file bytes, packed codes
+};
+
+struct tts_voice_info {
+    std::string name;
+    std::string kind;
+    std::string display_name;
+    std::string description;
+    std::string domain;
 };
 
 // The adapter pushes mono f32 24 kHz audio here. Returns false to abort the
@@ -91,6 +102,7 @@ struct tts_backend {
     std::function<bool(const tts_voice_upload & up, std::string & err)>                   register_voice;
     std::function<bool(const std::string & name)>                                         remove_voice;
     std::function<std::vector<std::string>()>                                             registered_voices;
+    std::function<std::vector<tts_voice_info>()>                                          voice_details;
 };
 
 struct server_config {
@@ -360,8 +372,14 @@ static bool tts_parse_voice_upload(const std::string & body, tts_voice_upload & 
     }
     up.name = yyjson_get_str(name);
 
-    yyjson_val * ref_text = yyjson_obj_get(root, "ref_text");
-    up.ref_text           = yyjson_is_str(ref_text) ? yyjson_get_str(ref_text) : "";
+    yyjson_val * display_name = yyjson_obj_get(root, "display_name");
+    yyjson_val * description  = yyjson_obj_get(root, "description");
+    yyjson_val * domain       = yyjson_obj_get(root, "domain");
+    yyjson_val * ref_text     = yyjson_obj_get(root, "ref_text");
+    up.display_name = yyjson_is_str(display_name) ? yyjson_get_str(display_name) : up.name;
+    up.description  = yyjson_is_str(description) ? yyjson_get_str(description) : "";
+    up.domain       = yyjson_is_str(domain) ? yyjson_get_str(domain) : "shared";
+    up.ref_text     = yyjson_is_str(ref_text) ? yyjson_get_str(ref_text) : "";
 
     yyjson_val * wav = yyjson_obj_get(root, "wav_b64");
     yyjson_val * spk = yyjson_obj_get(root, "spk_b64");
@@ -455,7 +473,17 @@ static void tts_handle_voices(const tts_backend & be, const httplib::Request &, 
         yyjson_mut_obj_add_str(doc, one, "kind", "speaker");
         yyjson_mut_arr_add_val(arr, one);
     }
-    if (be.registered_voices) {
+    if (be.voice_details) {
+        for (const tts_voice_info & v : be.voice_details()) {
+            yyjson_mut_val * one = yyjson_mut_obj(doc);
+            yyjson_mut_obj_add_val(doc, one, "name", yyjson_mut_strcpy(doc, v.name.c_str()));
+            yyjson_mut_obj_add_val(doc, one, "kind", yyjson_mut_strcpy(doc, v.kind.c_str()));
+            yyjson_mut_obj_add_val(doc, one, "display_name", yyjson_mut_strcpy(doc, v.display_name.c_str()));
+            yyjson_mut_obj_add_val(doc, one, "description", yyjson_mut_strcpy(doc, v.description.c_str()));
+            yyjson_mut_obj_add_val(doc, one, "domain", yyjson_mut_strcpy(doc, v.domain.c_str()));
+            yyjson_mut_arr_add_val(arr, one);
+        }
+    } else if (be.registered_voices) {
         for (const std::string & v : be.registered_voices()) {
             yyjson_mut_val * one = yyjson_mut_obj(doc);
             yyjson_mut_obj_add_val(doc, one, "name", yyjson_mut_strcpy(doc, v.c_str()));
@@ -562,6 +590,13 @@ static int tts_server_run(const tts_backend & be, const server_config & cfg) {
     svr.Post("/v1/voices",
              [&be](const httplib::Request & req, httplib::Response & res) { tts_handle_voice_register(be, req, res); });
     svr.Delete(R"(/v1/voices/(.+))",
+               [&be](const httplib::Request & req, httplib::Response & res) { tts_handle_voice_delete(be, req, res); });
+    // OpenAI-style audio namespace; keep /v1/voices as compatibility alias.
+    svr.Get("/v1/audio/voices",
+            [&be](const httplib::Request & req, httplib::Response & res) { tts_handle_voices(be, req, res); });
+    svr.Post("/v1/audio/voices",
+             [&be](const httplib::Request & req, httplib::Response & res) { tts_handle_voice_register(be, req, res); });
+    svr.Delete(R"(/v1/audio/voices/(.+))",
                [&be](const httplib::Request & req, httplib::Response & res) { tts_handle_voice_delete(be, req, res); });
     svr.Get("/v1/admin/scripts", admin_scripts_list);
     svr.Post("/v1/admin/scripts/run", admin_script_enqueue);

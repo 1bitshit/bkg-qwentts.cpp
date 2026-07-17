@@ -691,6 +691,9 @@ std::vector<int32_t> pipeline_codec_encode(PipelineCodec * pc,
         ggml_build_forward_expand(graph, sn_stage3_dump);
     }
 
+    // Repeated voice registration reuses this scheduler after speaker extraction.
+    // Reset before allocating the encode graph, matching the decode path.
+    ggml_backend_sched_reset(pc->sched);
     if (!ggml_backend_sched_alloc_graph(pc->sched, graph)) {
         qt_log(QT_LOG_ERROR, "[Pipeline] encode sched_alloc_graph failed");
         ggml_backend_sched_reset(pc->sched);

@@ -7,6 +7,7 @@
 
 #include "qwen.h"
 #include "rvq-file.h"
+#include "voicereg/voice_registry.h"
 #include "version.h"
 
 #include <cmath>
@@ -14,25 +15,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 // Packed .rvq code width, fixed by the Qwen3-TTS 12 Hz codec (2048
 // entries per codebook).
 static const int RVQ_CODE_BITS = 11;
-
-// One registered cloned voice: the extraction latents in the ABI
-// ownership contract (malloc-owned, released by qt_voice_ref_free) plus
-// the reference transcript that enables ICL clone mode when present.
-struct voice_entry {
-    struct qt_voice_ref ref;
-    std::string         ref_text;
-};
-
-// Registered voices, name keyed. Every access happens under
-// g_synth_mutex: registration touches the GPU through the extraction
-// path and lookups run inside the already serialized synthesize.
-static std::unordered_map<std::string, voice_entry> g_voices;
 
 static void print_usage(const char * prog) {
     fprintf(stderr, "qwentts.cpp %s\n\n", QWEN_VERSION);
@@ -45,6 +32,7 @@ static void print_usage(const char * prog) {
             "  --host <ip>             Listen address (default: 127.0.0.1)\n"
             "  --port <n>              Listen port (default: 8080)\n"
             "  --lang <name>           Language label (default: auto)\n"
+            "  --voice-dir <path>      Persistent cloned voice registry\n"
             "  --no-fa                 Disable flash attention\n"
             "  --clamp-fp16            Clamp hidden states to FP16 range\n",
             prog);
@@ -61,6 +49,7 @@ int main(int argc, char ** argv) {
     const char *  talker_path = NULL;
     const char *  codec_path  = NULL;
     std::string   lang        = "auto";
+    std::string   voice_dir   = std::getenv("QWENTTS_VOICE_DIR") ? std::getenv("QWENTTS_VOICE_DIR") : "data/voices";
     server_config cfg;
     bool          use_fa     = true;
     bool          clamp_fp16 = false;
@@ -77,6 +66,8 @@ int main(int argc, char ** argv) {
             cfg.port = std::atoi(argv[++i]);
         } else if (!std::strcmp(arg, "--lang") && i + 1 < argc) {
             lang = argv[++i];
+        } else if (!std::strcmp(arg, "--voice-dir") && i + 1 < argc) {
+            voice_dir = argv[++i];
         } else if (!std::strcmp(arg, "--no-fa")) {
             use_fa = false;
         } else if (!std::strcmp(arg, "--clamp-fp16")) {
@@ -109,6 +100,15 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
+    voicereg::voice_registry voice_registry(voice_dir);
+    std::string registry_warning;
+    voice_registry.reload(registry_warning);
+    if (!registry_warning.empty()) {
+        fprintf(stderr, "[VoiceReg] WARN: %s\n", registry_warning.c_str());
+    }
+    fprintf(stderr, "[VoiceReg] loaded %zu persistent voices from %s\n",
+            voice_registry.size(), voice_registry.store().root().string().c_str());
+
     tts_backend be;
     be.model_id = basename_of(talker_path);
     int n       = qt_n_speakers(q);
@@ -116,18 +116,19 @@ int main(int argc, char ** argv) {
         be.voices.push_back(qt_speaker_name(q, i));
     }
 
-    // Voice registry: POST /v1/voices stores a cloned voice either from a
-    // WAV (server side extraction through qt_extract_voice_ref) or from
-    // pre-extracted .spk / .rvq payloads. Re-registering a name replaces
-    // the previous entry.
-    be.register_voice = [q](const tts_voice_upload & up, std::string & err) -> bool {
-        voice_entry entry;
-        entry.ref      = {};
-        entry.ref_text = up.ref_text;
+    // Native persistent voice registry shared by Talkshow and Story.
+    be.register_voice = [q, &voice_registry](const tts_voice_upload & up, std::string & err) -> bool {
+        voicereg::voice_profile entry;
+        entry.id           = up.name;
+        entry.display_name = up.display_name.empty() ? up.name : up.display_name;
+        entry.description  = up.description;
+        entry.domain       = up.domain.empty() ? "shared" : up.domain;
+        entry.ref_text     = up.ref_text;
 
         if (!up.wav.empty()) {
-            int     T   = 0;
-            float * pcm = audio_read_mono_buf((const uint8_t *) up.wav.data(), up.wav.size(), 24000, &T);
+            int sample_count = 0;
+            float * pcm = audio_read_mono_buf(
+                (const uint8_t *) up.wav.data(), up.wav.size(), 24000, &sample_count);
             if (!pcm) {
                 err = "cannot decode the WAV payload";
                 return false;
@@ -135,7 +136,7 @@ int main(int argc, char ** argv) {
             enum qt_status rc;
             {
                 std::lock_guard<std::mutex> lock(g_synth_mutex);
-                rc = qt_extract_voice_ref(q, pcm, T, &entry.ref);
+                rc = qt_extract_voice_ref(q, pcm, sample_count, &entry.ref);
             }
             free(pcm);
             if (rc != QT_STATUS_OK) {
@@ -148,52 +149,57 @@ int main(int argc, char ** argv) {
                 return false;
             }
             std::vector<int32_t> codes;
-            int                  ref_T = 0;
-            const int            K     = qt_num_codebooks(q);
-            if (!rvq_read_buf((const uint8_t *) up.rvq.data(), up.rvq.size(), K, RVQ_CODE_BITS, codes, &ref_T)) {
+            int ref_T = 0;
+            const int K = qt_num_codebooks(q);
+            if (!rvq_read_buf((const uint8_t *) up.rvq.data(), up.rvq.size(),
+                              K, RVQ_CODE_BITS, codes, &ref_T)) {
                 err = "'rvq_b64' does not decode to a valid packed code stream";
                 return false;
             }
             entry.ref.ref_spk_dim = (int) (up.spk.size() / sizeof(float));
             entry.ref.ref_spk_emb = (float *) malloc(up.spk.size());
+            entry.ref.ref_codes = (int32_t *) malloc(codes.size() * sizeof(int32_t));
+            if (!entry.ref.ref_spk_emb || !entry.ref.ref_codes) {
+                err = "out of memory while registering voice";
+                return false;
+            }
             std::memcpy(entry.ref.ref_spk_emb, up.spk.data(), up.spk.size());
-            entry.ref.ref_T         = ref_T;
-            entry.ref.num_codebooks = K;
-            entry.ref.ref_codes     = (int32_t *) malloc(codes.size() * sizeof(int32_t));
             std::memcpy(entry.ref.ref_codes, codes.data(), codes.size() * sizeof(int32_t));
+            entry.ref.ref_T = ref_T;
+            entry.ref.num_codebooks = K;
         }
 
-        std::lock_guard<std::mutex> lock(g_synth_mutex);
-        auto                        it = g_voices.find(up.name);
-        if (it != g_voices.end()) {
-            qt_voice_ref_free(&it->second.ref);
-            g_voices.erase(it);
-        }
-        fprintf(stderr, "[Server] voice '%s' registered (T=%d, ref_text=%s)\n", up.name.c_str(), entry.ref.ref_T,
-                entry.ref_text.empty() ? "no" : "yes");
-        g_voices.emplace(up.name, std::move(entry));
-        return true;
-    };
-
-    be.remove_voice = [](const std::string & name) -> bool {
-        std::lock_guard<std::mutex> lock(g_synth_mutex);
-        auto                        it = g_voices.find(name);
-        if (it == g_voices.end()) {
+        const int ref_T = entry.ref.ref_T;
+        if (!voice_registry.put(std::move(entry), err)) {
             return false;
         }
-        qt_voice_ref_free(&it->second.ref);
-        g_voices.erase(it);
+        fprintf(stderr, "[VoiceReg] voice '%s' persisted (T=%d, domain=%s)\n",
+                up.name.c_str(), ref_T, up.domain.empty() ? "shared" : up.domain.c_str());
         return true;
     };
 
-    be.registered_voices = []() -> std::vector<std::string> {
-        std::lock_guard<std::mutex> lock(g_synth_mutex);
-        std::vector<std::string>    names;
-        names.reserve(g_voices.size());
-        for (const auto & kv : g_voices) {
-            names.push_back(kv.first);
+    be.remove_voice = [&voice_registry](const std::string & name) -> bool {
+        if (!voice_registry.find(name)) {
+            return false;
         }
-        return names;
+        std::string error;
+        if (!voice_registry.remove(name, error)) {
+            fprintf(stderr, "[VoiceReg] remove '%s' failed: %s\n", name.c_str(), error.c_str());
+            return false;
+        }
+        return true;
+    };
+
+    be.registered_voices = [&voice_registry]() -> std::vector<std::string> {
+        return voice_registry.ids();
+    };
+
+    be.voice_details = [&voice_registry]() -> std::vector<tts_voice_info> {
+        std::vector<tts_voice_info> result;
+        for (const auto & voice : voice_registry.summaries()) {
+            result.push_back({ voice.id, "registered", voice.display_name, voice.description, voice.domain });
+        }
+        return result;
     };
 
     // pcm drives the streaming pipeline : on_chunk routes each decoded
@@ -204,21 +210,20 @@ int main(int argc, char ** argv) {
     // the same name and injects the pre-extracted reference latents. A
     // name matching neither is rejected instead of silently generating
     // voiceless.
-    be.synthesize = [q, &lang](const tts_request & req, const tts_sink & sink, std::string & err) -> int {
+    be.synthesize = [q, &lang, &voice_registry](const tts_request & req, const tts_sink & sink, std::string & err) -> int {
         struct qt_tts_params p;
         qt_tts_default_params(&p);
         p.text = req.input.c_str();
         p.lang = lang.c_str();
 
-        auto vit = req.voice.empty() ? g_voices.end() : g_voices.find(req.voice);
-        if (vit != g_voices.end()) {
-            const voice_entry & v = vit->second;
-            p.ref_spk_emb         = v.ref.ref_spk_emb;
-            p.ref_spk_dim         = v.ref.ref_spk_dim;
-            if (!v.ref_text.empty() && v.ref.ref_codes) {
-                p.ref_codes = v.ref.ref_codes;
-                p.ref_T     = v.ref.ref_T;
-                p.ref_text  = v.ref_text.c_str();
+        auto voice = req.voice.empty() ? nullptr : voice_registry.find(req.voice);
+        if (voice) {
+            p.ref_spk_emb = voice->ref.ref_spk_emb;
+            p.ref_spk_dim = voice->ref.ref_spk_dim;
+            if (!voice->ref_text.empty() && voice->ref.ref_codes) {
+                p.ref_codes = voice->ref.ref_codes;
+                p.ref_T     = voice->ref.ref_T;
+                p.ref_text  = voice->ref_text.c_str();
             }
         } else if (!req.voice.empty() && qt_n_speakers(q) > 0) {
             p.speaker = req.voice.c_str();

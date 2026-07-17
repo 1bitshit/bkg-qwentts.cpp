@@ -6,6 +6,7 @@ import { useAppContext } from '../../../context/AppContext';
 import { useToast } from '../../../context/ToastContext';
 import { useTranslation } from '../../../i18n/I18nContext';
 import * as debateService from '../../../services/debate';
+import { playTalkshowTimeline } from '../../../services/talkshowMixer';
 import { getHeaders } from '../../../services/api';
 import type { SpeakerConfig, DebateMessage as DebateMessageType } from '../../../types/debate';
 
@@ -112,13 +113,19 @@ export function DebateTab() {
 
   // Auto-play new messages
   useEffect(() => {
-    if (!autoPlay || messages.length === 0) return;
+    if (!autoPlay || deliveryMode !== 'live' || messages.length === 0) return;
     const last = messages[messages.length - 1];
     if (last.audio_base64 && !last.text.includes('[is thinking')) {
       const id = `${last.speaker_id}_${messages.length - 1}`;
-      setTimeout(() => playAudio(last.audio_base64!, id), 300);
+      setTimeout(() => playAudio(last.audio_base64!, id), 120);
     }
-  }, [messages, autoPlay]);
+  }, [messages, autoPlay, deliveryMode]);
+
+  useEffect(() => {
+    if (!autoPlay || deliveryMode !== 'prerecorded' || status !== 'finished') return;
+    const audioMsgs = messages.filter(m => m.audio_base64 && !m.text.includes('[is thinking'));
+    if (audioMsgs.length > 0) void playTalkshowTimeline(audioMsgs);
+  }, [status, deliveryMode, autoPlay, messages]);
 
   const generateIdea = useCallback(async () => {
     setIdeaBusy(true);
@@ -341,11 +348,13 @@ export function DebateTab() {
     audio.play();
   };
 
-  const playAllAudio = () => {
+  const playAllAudio = async () => {
     const audioMsgs = messages.filter(m => m.audio_base64 && !m.text.includes('[is thinking'));
-    audioMsgs.forEach((m, i) => {
-      setTimeout(() => playAudio(m.audio_base64!, `${m.speaker_id}_stream_${i}`), i * 3000);
-    });
+    try {
+      await playTalkshowTimeline(audioMsgs);
+    } catch (error) {
+      toast.showToast((error as Error).message || 'Mehrspur-Wiedergabe fehlgeschlagen', 'error');
+    }
   };
 
   const speakerColors = ['#00d4ff', '#ff6b9d', '#ffd93d', '#6bcb77', '#a66cff', '#ff8c42'];
@@ -357,7 +366,7 @@ export function DebateTab() {
         <div className="space-y-md">
           <div className="grid md:grid-cols-[180px_1fr_auto] gap-sm">
             <select value={category} onChange={e => setCategory(e.target.value)} className="px-md py-sm rounded-md bg-bg-surface border border-border-subtle text-text-primary text-sm" disabled={status === 'running'}>
-              {['Politik', 'Sport', 'Entertainment', 'Gesellschaft', 'Technik', 'Wissenschaft', 'Wirtschaft', 'Kultur', 'Alltag', 'Freie Wahl'].map(item => <option key={item} value={item}>{item}</option>)}
+              {['Beziehungschaos', 'Familienkrieg', 'Doppelleben', 'Nachbarschaft', 'Arbeit & Geld', 'Körper & Eitelkeit', 'Sexualität unter Erwachsenen', 'Ruhm & Absturz', 'Moralpanik', 'Komplett freie Mischung'].map(item => <option key={item} value={item}>{item}</option>)}
             </select>
             <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder={t('debateTopicPlaceholder')}
               className="px-md py-sm rounded-md bg-bg-surface border border-border-subtle text-text-primary font-mono text-sm focus:outline-none focus:border-accent-cyan"
@@ -407,7 +416,7 @@ export function DebateTab() {
             </div>
           </details>
           <div className="flex gap-sm items-center flex-wrap">
-            <select value={deliveryMode} onChange={async e => { const mode = e.target.value as 'live' | 'prerecorded'; setDeliveryMode(mode); setAutoPlay(mode === 'live'); if (sessionId && status !== 'running') { try { await debateService.updateDeliveryMode(sessionId, mode); } catch (error) { toast.showToast((error as Error).message, 'error'); } } }} disabled={status === 'running' || status === 'creating_voices'} className="px-sm py-xs rounded bg-bg-surface border border-border-subtle text-text-primary text-xs">
+            <select value={deliveryMode} onChange={async e => { const mode = e.target.value as 'live' | 'prerecorded'; setDeliveryMode(mode); setAutoPlay(true); if (sessionId && status !== 'running') { try { await debateService.updateDeliveryMode(sessionId, mode); } catch (error) { toast.showToast((error as Error).message, 'error'); } } }} disabled={status === 'running' || status === 'creating_voices'} className="px-sm py-xs rounded bg-bg-surface border border-border-subtle text-text-primary text-xs">
               <option value="live">Live-Streaming</option>
               <option value="prerecorded">Vorproduziert</option>
             </select>
@@ -430,7 +439,7 @@ export function DebateTab() {
 
             {/* Play all */}
             {messages.filter(m => m.audio_base64).length > 0 && (
-              <button onClick={playAllAudio} className="flex items-center gap-xs text-xs text-accent-cyan hover:opacity-80">
+              <button onClick={() => { void playAllAudio(); }} className="flex items-center gap-xs text-xs text-accent-cyan hover:opacity-80">
                 <SkipForward size={12} /> Alle abspielen
               </button>
             )}

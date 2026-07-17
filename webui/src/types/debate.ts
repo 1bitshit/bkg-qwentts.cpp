@@ -15,6 +15,9 @@ export interface SpeakerConfig {
   position?: string;
   biography?: string;
   emotion_profile?: string;
+  gender?: string;
+  address?: string;
+  pronouns?: string;
   voice_archive_id?: string;
 }
 

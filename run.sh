@@ -20,9 +20,12 @@ load_env() {
 load_env
 
 TTS_PORT="${BKG_QWENTTS_PORT:-8010}"
+TTS_LIVE_PORT="${TTS_LIVE_PORT:-8012}"
+TTS_STUDIO_PORT="${TTS_STUDIO_PORT:-8013}"
 WEB_PORT="${PORT:-8000}"
 LMS_PORT="${LM_STUDIO_INTERNAL_PORT:-1234}"
 LMS_PUBLIC_PORT="${LM_STUDIO_PROXY_PORT:-1235}"
+TALKER_URL="${BKG_QWENTTS_MODEL_URL:-https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF/resolve/main/qwen-talker-1.7b-customvoice-Q8_0.gguf}"
 TALKER="${BKG_QWENTTS_MODEL:-$ROOT/models/qwen-talker-1.7b-customvoice-Q8_0.gguf}"
 CODEC="${BKG_QWENTTS_CODEC:-$ROOT/models/qwen-tokenizer-12hz-Q8_0.gguf}"
 TEXT_MODEL_URL="${LM_STUDIO_MODEL_URL:-https://huggingface.co/unsloth/Qwen3-14B-128K-GGUF/resolve/main/Qwen3-14B-128K-Q4_K_M.gguf}"
@@ -57,7 +60,12 @@ wait_http() {
 }
 
 require_models() {
-  [ -s "$TALKER" ] || { echo "Talker-Modell fehlt: $TALKER" >&2; exit 1; }
+  if [ ! -s "$TALKER" ]; then
+    echo "[run] Lade stabiles 1.7B-CustomVoice-Modell"
+    mkdir -p "$(dirname "$TALKER")"
+    curl -fL --retry 3 -o "$TALKER.part" "$TALKER_URL"
+    mv "$TALKER.part" "$TALKER"
+  fi
   [ -s "$CODEC" ] || { echo "Codec-Modell fehlt: $CODEC" >&2; exit 1; }
 }
 ensure_build() {
@@ -73,16 +81,17 @@ ensure_build() {
 }
 
 start_tts() {
-  local pidfile="$RUNTIME/tts-server.pid"
+  local pidfile="$RUNTIME/model-gateway.pid"
   pid_alive "$pidfile" && return
-  nohup "$ROOT/build/tts-server" \
-    --model "$TALKER" --codec "$CODEC" \
-    --host 0.0.0.0 --port "$TTS_PORT" --lang auto \
-    >"$LOGS/tts-server.log" 2>&1 </dev/null &
+  "$ROOT/scripts/model-runtime.sh" unload || true
+  nohup env MODEL_GATEWAY_HOST=0.0.0.0 MODEL_GATEWAY_PORT="$TTS_PORT" \
+    TTS_LIVE_PORT="$TTS_LIVE_PORT" TTS_STUDIO_PORT="$TTS_STUDIO_PORT" \
+    TTS_IDLE_MS="${TTS_IDLE_MS:-120000}" \
+    node "$ROOT/scripts/model-gateway.mjs" >"$LOGS/model-gateway.log" 2>&1 </dev/null &
   echo $! > "$pidfile"
   sleep 1
-  pid_alive "$pidfile" || { tail -80 "$LOGS/tts-server.log" >&2; return 1; }
-  wait_http "http://127.0.0.1:$TTS_PORT/health" "TTS-Server"
+  pid_alive "$pidfile" || { tail -80 "$LOGS/model-gateway.log" >&2; return 1; }
+  wait_http "http://127.0.0.1:$TTS_PORT/health" "Model-Gateway"
 }
 
 start_proxy() {
@@ -208,10 +217,12 @@ status_all() {
 start_all() {
   require_models
   ensure_build
+  python3 tools/embed_web_assets.py
   pkill -f '/notebooks/alpha/tts/bin/beam' 2>/dev/null || true
   pkill -f 'setup/port-proxy.py' 2>/dev/null || true
   pkill -f 'build/tts-server' 2>/dev/null || true
-  command -v fuser >/dev/null 2>&1 && fuser -k "$WEB_PORT/tcp" "$TTS_PORT/tcp" "$LMS_PUBLIC_PORT/tcp" 2>/dev/null || true
+  pkill -f 'scripts/model-gateway.mjs' 2>/dev/null || true
+  command -v fuser >/dev/null 2>&1 && fuser -k "$WEB_PORT/tcp" "$TTS_PORT/tcp" "$TTS_LIVE_PORT/tcp" "$TTS_STUDIO_PORT/tcp" "$LMS_PUBLIC_PORT/tcp" 2>/dev/null || true
   sleep 1
   rm -f "$RUNTIME"/*.pid
   start_tts
