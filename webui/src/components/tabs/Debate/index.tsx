@@ -179,7 +179,7 @@ export function DebateTab() {
     setProgress({ percent: 8, label: 'KI entwirft die Talkshow-Gäste' });
     try {
       const generated = await debateService.generateRandomGuests(guestCount, debateLanguage, topic);
-      setProgress({ percent: 68, label: 'Einzigartige Design-Stimmen werden geprüft und archiviert' });
+      setProgress({ percent: 24, label: `${generated.length} Gäste stehen fest. Talkshow wird angelegt.` });
       setSpeakers(generated);
       const result = await debateService.createDebate({
         topic, category, teaser, speakers: generated,
@@ -188,12 +188,24 @@ export function DebateTab() {
       }, apiKey);
       setSessionId(result.session_id);
       setMessages([]);
-      setStatus('idle');
-      setProgress({ percent: 100, label: `${generated.length} Gäste sind bereit. Weiter startet die Sendung.` });
+      setStatus('creating_voices');
+      setProgress({ percent: 30, label: 'Talkshow ist angelegt. Stimmen werden jetzt erzeugt.' });
       await refreshSavedDebates();
-      toast.showToast('Gäste und Stimmen sind vorbereitet', 'success');
+
+      try {
+        await debateService.prepareTalkshowVoices(generated, debateLanguage, (voicePercent, label) => {
+          setProgress({ percent: 30 + Math.round(voicePercent * 0.68), label });
+        });
+        setProgress({ percent: 100, label: `${generated.length} Gäste und ihre Stimmen sind bereit.` });
+        toast.showToast('Talkshow und Stimmen sind vorbereitet', 'success');
+      } catch (voiceError: any) {
+        setProgress({ percent: 100, label: 'Talkshow wurde angelegt, aber der Stimmenbau ist fehlgeschlagen.' });
+        toast.showToast(voiceError.message || 'Stimmen konnten nicht erzeugt werden', 'error');
+      }
+      setStatus('idle');
     } catch (e: any) {
       setStatus('idle');
+      setProgress({ percent: 100, label: 'Talkshow konnte nicht angelegt werden' });
       toast.showToast(e.message || t('debateCreateError'), 'error');
     } finally {
       setGuestBusy(false);

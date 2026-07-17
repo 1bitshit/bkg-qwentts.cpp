@@ -36,28 +36,12 @@ export async function generateRandomGuests(count: number, language: string, topi
   const raw = await generateWithLM('debate', `Erzeuge ${count} deutlich unterschiedliche, thematisch passende Gäste für eine deutsche Radio-Talkshow der 1990er zum Thema "${topic}". Die Besetzung muss echte Gegensätze enthalten: direkt Betroffene, Angehörige, Fachleute, Befürworter und entschiedene Gegner. Alter, Herkunft, Beruf, Lebensstil und soziale Perspektive müssen zum Thema passen. Antworte ausschließlich als JSON-Array. Jedes Objekt braucht name, age, gender, address, pronouns, origin, occupation, motto, tagline, personality, position, biography, voice_description und emotion_profile. gender, address und pronouns müssen eindeutig zusammenpassen. voice_description beschreibt eine einzigartige natürliche Stimme passend zu Alter, Herkunft, Persönlichkeit und Lebensgeschichte.`);
   const rows = extractJson(raw).slice(0, count);
   const guests: SpeakerConfig[] = [];
-  const profiles: VoiceProfileRequest[] = [{
-    id: HOST_VOICE,
-    displayName: 'Talkmaster',
-    description: 'Warmer, souveräner deutscher Radio-Moderator der 1990er, charmant, pointiert und professionell.',
-    refText: 'Willkommen zurück bei Back to the 90.',
-    domain: 'talkshow',
-    language: 'German',
-  }];
 
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
     const name = String(row.name || `Gast ${index + 1}`);
     const description = String(row.voice_description || `${row.personality || 'markant und natürlich'}, klare Radiostimme`);
     const voiceId = stableVoiceId('talkshow', name, description);
-    profiles.push({
-      id: voiceId,
-      displayName: name,
-      description,
-      refText: `Guten Abend. Ich bin ${name} und freue mich auf diese Radio Talk Show.`,
-      domain: 'talkshow',
-      language,
-    });
     guests.push({
       id: `speaker_${Date.now()}_${index}`,
       name,
@@ -81,8 +65,33 @@ export async function generateRandomGuests(count: number, language: string, topi
       voice: voiceId,
     });
   }
-  await ensureVoiceProfiles(profiles);
   return guests;
+}
+
+export async function prepareTalkshowVoices(
+  guests: SpeakerConfig[],
+  language: string,
+  onProgress?: (percent: number, label: string) => void,
+): Promise<void> {
+  const profiles: VoiceProfileRequest[] = [{
+    id: HOST_VOICE,
+    displayName: 'Talkmaster',
+    description: 'Warmer, souveräner deutscher Radio-Moderator der 1990er, charmant, pointiert und professionell.',
+    refText: 'Willkommen zurück bei Back to the 90.',
+    domain: 'talkshow',
+    language: 'German',
+  }];
+  for (const guest of guests) {
+    profiles.push({
+      id: guest.voice_archive_id || guest.voice || stableVoiceId('talkshow', guest.name, guest.voice_description || guest.name),
+      displayName: guest.name,
+      description: guest.voice_description || 'Markante natürliche deutsche Radiostimme',
+      refText: `Guten Abend. Ich bin ${guest.name}.`,
+      domain: 'talkshow',
+      language,
+    });
+  }
+  await ensureVoiceProfiles(profiles, onProgress);
 }
 
 type AudienceMember = { id: string; name: string; tagline: string; personality: string; voice_description: string; voice: string; appearances: number; status: 'audience' | 'regular' | 'guest_candidate' };

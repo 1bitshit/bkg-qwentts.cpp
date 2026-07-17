@@ -67,16 +67,32 @@ async function registerReference(profile: VoiceProfileRequest, wavBase64: string
   if (!response.ok) throw new Error(await response.text());
 }
 
-export async function ensureVoiceProfiles(profiles: VoiceProfileRequest[]): Promise<void> {
+export type VoiceProgress = (percent: number, label: string) => void;
+
+export async function ensureVoiceProfiles(
+  profiles: VoiceProfileRequest[],
+  onProgress?: VoiceProgress,
+): Promise<void> {
+  onProgress?.(0, 'Vorhandene Stimmen werden geprüft');
   const existing = await listVoiceIds();
   const missing = profiles.filter(profile => !existing.has(profile.id));
-  if (!missing.length) return;
+  if (!missing.length) {
+    onProgress?.(100, 'Alle Stimmen sind bereits im nativen Archiv');
+    return;
+  }
 
   const references: Array<{ profile: VoiceProfileRequest; wavBase64: string }> = [];
-  for (const profile of missing) {
+  for (let index = 0; index < missing.length; index += 1) {
+    const profile = missing[index];
+    const percent = Math.round((index / missing.length) * 70);
+    onProgress?.(percent, `VoiceDesign erzeugt ${profile.displayName} (${index + 1}/${missing.length})`);
     references.push({ profile, wavBase64: await designReference(profile) });
   }
-  for (const reference of references) {
+  for (let index = 0; index < references.length; index += 1) {
+    const reference = references[index];
+    const percent = 72 + Math.round(((index + 1) / references.length) * 28);
+    onProgress?.(percent, `Native Registry speichert ${reference.profile.displayName}`);
     await registerReference(reference.profile, reference.wavBase64);
   }
+  onProgress?.(100, `${missing.length} neue Stimmen sind archiviert`);
 }
