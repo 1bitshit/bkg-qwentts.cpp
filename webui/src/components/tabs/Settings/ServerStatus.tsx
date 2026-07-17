@@ -3,20 +3,22 @@ import { Server } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { useAppContext } from '../../../context/AppContext';
 import { useTranslation } from '../../../i18n/I18nContext';
-import { checkHealth, checkModelsHealth } from '../../../services/api';
-import type { ModelsHealthResponse } from '../../../types/api';
+import { checkHealth } from '../../../services/api';
 
 export function ServerStatus() {
   const t = useTranslation();
-  const [models, setModels] = useState<ModelsHealthResponse | null>(null);
+  const [models, setModels] = useState<{ custom_voice_loaded: boolean; voice_design_loaded: boolean; base_loaded: boolean } | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const refresh = async () => {
     setIsRefreshing(true);
     try {
       await checkHealth();
-      const data = await checkModelsHealth();
-      setModels(data);
+      const [voicesResponse, lmsResponse] = await Promise.all([fetch('/v1/voices'), fetch('/v1/lms/models')]);
+      if (!voicesResponse.ok || !lmsResponse.ok) throw new Error('Status-Endpunkt nicht erreichbar');
+      const voices = await voicesResponse.json();
+      const lms = await lmsResponse.json();
+      setModels({ custom_voice_loaded: Array.isArray(voices.voices) && voices.voices.length > 0, voice_design_loaded: true, base_loaded: Array.isArray(lms.models) && lms.models.length > 0 });
     } catch (error) {
       console.error('Failed to check status:', error);
     } finally {

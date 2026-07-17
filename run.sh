@@ -133,6 +133,18 @@ ensure_lms() {
       --gpu "${STORY_AUTHOR_GPU_OFFLOAD:-max}" --yes
   fi
 }
+
+start_lms_bridge() {
+  local pidfile="$RUNTIME/lms-bridge.pid"
+  pid_alive "$pidfile" && return
+  (cd "$ROOT/lms-bridge" && npm install --no-audit --no-fund)
+  nohup env LMS_BRIDGE_HOST=127.0.0.1 LMS_BRIDGE_PORT=1236     LMS_SDK_BASE_URL="ws://127.0.0.1:$LMS_PORT"     LMS_DEFAULT_MODEL=qwen3-14b-128k     LMS_BIN="$(find_lms | head -n1)"     node "$ROOT/lms-bridge/src/server.mjs"     >"$LOGS/lms-bridge.log" 2>&1 </dev/null &
+  echo $! > "$pidfile"
+  sleep 1
+  pid_alive "$pidfile" || { tail -80 "$LOGS/lms-bridge.log" >&2; return 1; }
+  wait_http "http://127.0.0.1:1236/health" "LM-Studio-Bridge"
+}
+
 start_admin() {
   local pidfile="$ROOT/.runtime/admin-runner.pid"
   pid_alive "$pidfile" || "$ROOT/scripts/start-admin-runner.sh"
@@ -185,6 +197,7 @@ status_all() {
   printf '\nWeb: '; curl -fsS "http://127.0.0.1:$WEB_PORT/health" 2>/dev/null || echo stopped
   printf '\nLM Studio: '; curl -fsS "http://127.0.0.1:$LMS_PORT/v1/models" 2>/dev/null || echo stopped
   printf '\nLM Proxy: '; curl -fsS "http://127.0.0.1:$LMS_PUBLIC_PORT/v1/models" 2>/dev/null || echo stopped
+  printf '\nLM Bridge: '; curl -fsS "http://127.0.0.1:1236/health" 2>/dev/null || echo stopped
   printf '\nProzesse:\n'
   for file in "$RUNTIME"/*.pid "$ROOT/.runtime/admin-runner.pid"; do
     [ -e "$file" ] || continue
@@ -206,6 +219,7 @@ start_all() {
   start_admin
   if ! ensure_lms; then echo "[run] WARNUNG: LM Studio konnte nicht gestartet werden" >&2; fi
   start_proxy lm-proxy "$LMS_PUBLIC_PORT" "$LMS_PORT"
+  start_lms_bridge
   start_plugin
   ensure_beam
   start_beam qwen "$WEB_PORT" "${BEAM_TTS_REMOTE_PORT:-80}"

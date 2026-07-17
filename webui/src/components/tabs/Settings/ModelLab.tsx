@@ -13,12 +13,15 @@ export function ModelLab() {
   const [data, setData] = useState<Recommendations | null>(null);
   const [result, setResult] = useState('');
   const [busy, setBusy] = useState('');
-  const base = `${CONFIG.baseUrl}/api/v1/model-lab`;
+  const base = `${CONFIG.baseUrl}/v1/lms/model-lab`;
 
   const request = async (path: string, body?: object) => {
     const response = await fetch(`${base}${path}`, { method: body ? 'POST' : 'GET', headers: getHeaders(apiKey, body ? 'application/json' : ''), body: body ? JSON.stringify(body) : undefined });
-    const json = await response.json();
-    if (!response.ok) throw new Error(json.detail || 'Model-Lab Fehler');
+    const text = await response.text();
+    let json: any = {};
+    try { json = text ? JSON.parse(text) : {}; }
+    catch { throw new Error(text || `Model-Lab lieferte eine leere oder ungültige Antwort (${response.status}).`); }
+    if (!response.ok) throw new Error(json.detail || json.error || `Model-Lab Fehler (${response.status})`);
     return json;
   };
 

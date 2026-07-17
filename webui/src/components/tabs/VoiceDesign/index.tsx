@@ -5,11 +5,13 @@ import { FormSelect } from '../../forms/FormSelect';
 import { RangeSlider } from '../../forms/RangeSlider';
 import { Button } from '../../ui/Button';
 import { AudioPlayer } from '../../audio/AudioPlayer';
+import { GenerationProgress } from '../../ui/GenerationProgress';
 import { ExamplePrompts } from './ExamplePrompts';
 import { useAppContext } from '../../../context/AppContext';
 import { useToast } from '../../../context/ToastContext';
 import { useTranslation } from '../../../i18n/I18nContext';
-import { generateVoiceDesign } from '../../../services/api';
+import { generateVoiceDesign, streamVoiceDesign } from '../../../services/api';
+import { playPcmProducer } from '../../../services/audioRuntime';
 import { base64ToBlob } from '../../../utils/audio';
 
 export function VoiceDesignTab() {
@@ -21,6 +23,8 @@ export function VoiceDesignTab() {
   const [text, setText] = useState(t('defaultTextVoiceDesign'));
   const [language, setLanguage] = useState('English');
   const [speed, setSpeed] = useState(1.0);
+  const [progress, setProgress] = useState({ percent: 0, label: 'Bereit' });
+  const [deliveryMode, setDeliveryMode] = useState<'wav' | 'stream'>('wav');
 
   const handleGenerate = async () => {
     if (!text.trim()) {
@@ -39,9 +43,18 @@ export function VoiceDesignTab() {
     }
 
     setVoiceDesignAudio({ ...voiceDesignAudio, isLoading: true });
+    setProgress({ percent: 5, label: 'Stimmprofil wird vorbereitet' });
     const startTime = performance.now();
 
     try {
+      if (deliveryMode === 'stream') {
+        setProgress({ percent: 25, label: 'Live-PCM wird gestartet' });
+        await playPcmProducer((onChunk) => streamVoiceDesign({ text, language, instruct, speed }, apiKey, onChunk));
+        setVoiceDesignAudio({ ...voiceDesignAudio, isLoading: false });
+        showToast('Live-PCM-Streaming abgeschlossen', 'success');
+        return;
+      }
+      setProgress({ percent: 30, label: 'Stimmdesign wird erzeugt' });
       const { data, headers } = await generateVoiceDesign(
         {
           text,
@@ -53,6 +66,7 @@ export function VoiceDesignTab() {
         apiKey
       );
 
+      setProgress({ percent: 85, label: 'WAV wird verarbeitet' });
       const genTime = (performance.now() - startTime) / 1000;
       const audioBlob = base64ToBlob(data.audio, 'audio/wav');
       const url = URL.createObjectURL(audioBlob);
@@ -67,8 +81,10 @@ export function VoiceDesignTab() {
         isLoading: false,
       });
 
+      setProgress({ percent: 100, label: 'Stimmdesign fertig' });
       showToast(t('generated'), 'success');
     } catch (error) {
+      setProgress({ percent: 100, label: 'Fehler beim Stimmdesign' });
       showToast((error as Error).message, 'error');
       setVoiceDesignAudio({ ...voiceDesignAudio, isLoading: false });
     }
@@ -133,6 +149,17 @@ export function VoiceDesignTab() {
           step={0.1}
         />
 
+
+        <FormSelect
+          label="Ausgabe"
+          value={deliveryMode}
+          onChange={(e) => setDeliveryMode(e.target.value as 'wav' | 'stream')}
+        >
+          <option value="wav">WAV – vollständig speichern</option>
+          <option value="stream">Live PCM – sofort abspielen</option>
+        </FormSelect>
+        <div className="mb-lg" />
+
         <Button
           variant="primary"
           isLoading={voiceDesignAudio.isLoading}
@@ -143,6 +170,8 @@ export function VoiceDesignTab() {
           <span>▶</span> {t('btnGenerateVoiceDesign')}
         </Button>
       </Card>
+
+      <GenerationProgress active={voiceDesignAudio.isLoading} percent={progress.percent} label={progress.label} />
 
       <AudioPlayer audioUrl={voiceDesignAudio.url} metrics={voiceDesignAudio.metrics} title={t('generatedAudio')} />
     </div>

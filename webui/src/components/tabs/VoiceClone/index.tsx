@@ -13,7 +13,8 @@ import { useAppContext } from '../../../context/AppContext';
 import { useToast } from '../../../context/ToastContext';
 import { useTranslation } from '../../../i18n/I18nContext';
 import { useI18n } from '../../../i18n/I18nContext';
-import { cloneVoice, createVoicePrompt, generateWithPrompt } from '../../../services/api';
+import { cloneVoice, createVoicePrompt, generateWithPrompt, streamClonedVoice, streamWithPrompt } from '../../../services/api';
+import { playPcmProducer } from '../../../services/audioRuntime';
 import { base64ToBlob } from '../../../utils/audio';
 import { RECORDING_PROMPTS } from '../../../config/recordingPrompts';
 import type { AudioMetrics } from '../../../types/audio';
@@ -44,6 +45,7 @@ export function VoiceCloneTab() {
   const [targetLanguage, setTargetLanguage] = useState('English');
   const [speed, setSpeed] = useState(1.0);
   const [isCreatingPrompt, setIsCreatingPrompt] = useState(false);
+  const [deliveryMode, setDeliveryMode] = useState<'wav' | 'stream'>('wav');
 
   const handleAudioUploaded = (base64: string) => {
     setUploadedFileBase64(base64);
@@ -133,6 +135,16 @@ export function VoiceCloneTab() {
     const startTime = performance.now();
 
     try {
+      if (deliveryMode === 'stream') {
+        await playPcmProducer((onChunk) => streamClonedVoice({
+          text, language: targetLanguage, ref_audio_base64: audioBase64,
+          ref_text: xVectorOnly ? undefined : refText,
+          x_vector_only_mode: xVectorOnly, speed,
+        }, apiKey, onChunk));
+        setVoiceCloneAudio({ ...voiceCloneAudio, isLoading: false });
+        showToast('Live-PCM-Stimmklon abgeschlossen', 'success');
+        return;
+      }
       const { data, headers } = await cloneVoice(
         {
           text,
@@ -175,6 +187,14 @@ export function VoiceCloneTab() {
     const startTime = performance.now();
 
     try {
+      if (deliveryMode === 'stream') {
+        await playPcmProducer((onChunk) => streamWithPrompt({
+          text, language: targetLanguage, prompt_id: selectedPromptId, speed,
+        }, apiKey, onChunk));
+        setVoiceCloneAudio({ ...voiceCloneAudio, isLoading: false });
+        showToast('Live-PCM mit gespeicherter Stimme abgeschlossen', 'success');
+        return;
+      }
       const { data, headers } = await generateWithPrompt(
         {
           text,
@@ -349,6 +369,16 @@ export function VoiceCloneTab() {
               <option value="Portuguese">{t('langPortuguese')}</option>
               <option value="Spanish">{t('langSpanish')}</option>
               <option value="Italian">{t('langItalian')}</option>
+            </FormSelect>
+            <div className="mb-lg" />
+
+            <FormSelect
+              label="Ausgabe"
+              value={deliveryMode}
+              onChange={(e) => setDeliveryMode(e.target.value as 'wav' | 'stream')}
+            >
+              <option value="wav">WAV – vollständig speichern</option>
+              <option value="stream">Live PCM – sofort abspielen</option>
             </FormSelect>
             <div className="mb-lg" />
 

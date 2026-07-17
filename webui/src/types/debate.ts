@@ -6,6 +6,16 @@ export interface SpeakerConfig {
   voice_description: string;
   language: string;
   voice_prompt_id?: string;
+  voice?: string;
+  age?: number;
+  origin?: string;
+  occupation?: string;
+  motto?: string;
+  tagline?: string;
+  position?: string;
+  biography?: string;
+  emotion_profile?: string;
+  voice_archive_id?: string;
 }
 
 export interface DebateMessage {
@@ -29,6 +39,7 @@ export interface DebateState {
   current_speaker_index: number;
   max_rounds: number;
   auto_advance: boolean;
+  delivery_mode?: 'live' | 'prerecorded';
 }
 
 export interface CreateDebateRequest {

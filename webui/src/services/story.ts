@@ -7,6 +7,7 @@ export interface StoryCharacter {
   role: string;
   personality: string;
   voice_description: string;
+  voice?: string;
   model_name: string;
   language: string;
 }
@@ -71,6 +72,7 @@ export async function createStory(payload: any, _apiKey?: string): Promise<Story
     role: index === 0 ? 'Hauptfigur' : 'Nebenfigur',
     personality: index === 0 ? 'neugierig und mutig' : 'eigenwillig und aufmerksam',
     voice_description: index % 2 ? 'ruhige Stimme' : 'klare Stimme',
+    voice: ['ryan','serena','aiden','vivian'][index % 4],
     model_name: payload.model_name || '',
     language: 'German',
   }));
@@ -153,9 +155,9 @@ async function runStory(story: StoryState) {
       const spokenText = text.replace(/\[REGIE:[^\]]*\]/g, '').trim();
       let audioBase64: string | null = null;
       if (story.delivery_mode === 'live') {
-        await streamPcmToSpeakers({ text: spokenText, language: 'German', instructions: director });
+        await streamPcmToSpeakers({ text: spokenText, voice: story.characters[scene % story.characters.length]?.voice || 'ryan', language: story.characters[scene % story.characters.length]?.language || 'German', instructions: director });
       } else {
-        audioBase64 = await synthesizeWav({ text: spokenText, language: 'German', instructions: director });
+        audioBase64 = await synthesizeWav({ text: spokenText, voice: story.characters[scene % story.characters.length]?.voice || 'ryan', language: story.characters[scene % story.characters.length]?.language || 'German', instructions: director });
       }
       const message: StoryMessage = {
         speaker_id: 'director',

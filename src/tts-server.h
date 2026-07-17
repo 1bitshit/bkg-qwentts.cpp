@@ -26,6 +26,7 @@
 #include "audio-io.h"
 #include "admin-api.h"
 #include "tts-web-assets.h"
+#include "talkshow/sound_random.h"
 #include "yyjson.h"
 
 #include <cfloat>
@@ -527,8 +528,33 @@ static int tts_server_run(const tts_backend & be, const server_config & cfg) {
         res.set_content(reinterpret_cast<const char *>(TTS_UI_JS), TTS_UI_JS_LEN,
                         "application/javascript; charset=utf-8");
     });
+    svr.Post("/v1/audio/sound-scene", tts_sound_designer::handle_http);
     svr.Post("/v1/audio/speech",
              [&be](const httplib::Request & req, httplib::Response & res) { tts_handle_speech(be, req, res); });
+    svr.Get(R"(/v1/lms/(.*))", [](const httplib::Request & req, httplib::Response & res) {
+        httplib::Client cli("127.0.0.1", 1236);
+        cli.set_read_timeout(120);
+        auto upstream = cli.Get(("/" + req.matches[1].str()).c_str());
+        if (!upstream) {
+            res.status = 502;
+            res.set_content("{\"error\":\"lms_bridge_unavailable\"}", "application/json");
+            return;
+        }
+        res.status = upstream->status;
+        res.set_content(upstream->body, upstream->get_header_value("Content-Type", "application/json"));
+    });
+    svr.Post(R"(/v1/lms/(.*))", [](const httplib::Request & req, httplib::Response & res) {
+        httplib::Client cli("127.0.0.1", 1236);
+        cli.set_read_timeout(300);
+        auto upstream = cli.Post(("/" + req.matches[1].str()).c_str(), req.body, "application/json");
+        if (!upstream) {
+            res.status = 502;
+            res.set_content("{\"error\":\"lms_bridge_unavailable\"}", "application/json");
+            return;
+        }
+        res.status = upstream->status;
+        res.set_content(upstream->body, upstream->get_header_value("Content-Type", "application/json"));
+    });
     svr.Get("/v1/models",
             [&be](const httplib::Request & req, httplib::Response & res) { tts_handle_models(be, req, res); });
     svr.Get("/v1/voices",

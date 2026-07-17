@@ -5,6 +5,7 @@ import { FormInput } from '../../forms/FormInput';
 import { RangeSlider } from '../../forms/RangeSlider';
 import { Button } from '../../ui/Button';
 import { AudioPlayer } from '../../audio/AudioPlayer';
+import { GenerationProgress } from '../../ui/GenerationProgress';
 import { SpeakerGrid } from './SpeakerGrid';
 import { QuickInstructions } from './QuickInstructions';
 import { useAppContext } from '../../../context/AppContext';
@@ -28,6 +29,7 @@ export function CustomVoiceTab() {
   const [temperature, setTemperature] = useState(1.1);
   const [topP, setTopP] = useState(1.0);
   const [repPenalty, setRepPenalty] = useState(1.08);
+  const [progress, setProgress] = useState({ percent: 0, label: 'Bereit' });
 
   const handleGenerate = async () => {
     if (!text.trim()) {
@@ -37,12 +39,15 @@ export function CustomVoiceTab() {
 
 
     setCustomVoiceAudio({ ...customVoiceAudio, isLoading: true });
+    setProgress({ percent: 5, label: 'Anfrage wird vorbereitet' });
     const startTime = performance.now();
 
     try {
       if (deliveryMode === 'stream') {
+        setProgress({ percent: 20, label: 'Live-PCM wird gestartet' });
         const context = new AudioContext({ sampleRate: 24000 });
         let nextStart = context.currentTime + 0.08;
+        setProgress({ percent: 35, label: 'Modell erzeugt und streamt Audio' });
         await streamEngineSpeech({
           text, language, speaker: selectedSpeaker, instruct: instruct || undefined,
           speed, emotion, volume, temperature, top_p: topP, rep_penalty: repPenalty,
@@ -60,10 +65,12 @@ export function CustomVoiceTab() {
           source.start(nextStart);
           nextStart += audioBuffer.duration;
         });
+        setProgress({ percent: 100, label: 'Live-Streaming abgeschlossen' });
         setCustomVoiceAudio({ ...customVoiceAudio, isLoading: false });
         showToast('Live-Streaming abgeschlossen', 'success');
         return;
       }
+      setProgress({ percent: 25, label: 'Stimme und Emotion werden vorbereitet' });
       const { data, headers } = await generateCustomVoice(
         {
           text,
@@ -81,6 +88,7 @@ export function CustomVoiceTab() {
         apiKey
       );
 
+      setProgress({ percent: 85, label: 'WAV wird verarbeitet' });
       const genTime = (performance.now() - startTime) / 1000;
       const audioBlob = base64ToBlob(data.audio, 'audio/wav');
       const url = URL.createObjectURL(audioBlob);
@@ -95,8 +103,10 @@ export function CustomVoiceTab() {
         isLoading: false,
       });
 
+      setProgress({ percent: 100, label: 'Audio fertig' });
       showToast(t('generated'), 'success');
     } catch (error) {
+      setProgress({ percent: 100, label: 'Fehler bei der Erzeugung' });
       showToast((error as Error).message, 'error');
       setCustomVoiceAudio({ ...customVoiceAudio, isLoading: false });
     }
@@ -200,6 +210,8 @@ export function CustomVoiceTab() {
           />
         </div>
       </div>
+
+      <GenerationProgress active={customVoiceAudio.isLoading} percent={progress.percent} label={progress.label} />
 
       <AudioPlayer
         audioUrl={customVoiceAudio.url}

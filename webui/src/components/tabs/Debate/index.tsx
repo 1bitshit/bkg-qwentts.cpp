@@ -71,6 +71,10 @@ export function DebateTab() {
 
   const [topic, setTopic] = useState('');
   const [category, setCategory] = useState('Politik');
+  const [debateLanguage, setDebateLanguage] = useState('German');
+  const [guestCount, setGuestCount] = useState<2 | 4 | 6 | 8>(4);
+  const [guestBusy, setGuestBusy] = useState(false);
+  const [selectedGuest, setSelectedGuest] = useState<SpeakerConfig | null>(null);
   const [ideaBusy, setIdeaBusy] = useState(false);
   const [teaser, setTeaser] = useState('');
   const [savedDebates, setSavedDebates] = useState<Array<{ session_id: string; topic: string; status: string; message_count: number; updated_at: string }>>([]);
@@ -163,21 +167,31 @@ export function DebateTab() {
       toast.showToast(t('debateNoTopic'), 'warning');
       return;
     }
-    if (speakers.length < 2) {
-      toast.showToast(t('debateMinSpeakers'), 'warning');
-      return;
-    }
+    setGuestBusy(true);
+    setStatus('creating_voices');
+    setProgress({ percent: 8, label: 'KI entwirft die Talkshow-Gäste' });
     try {
-      const result = await debateService.createDebate({ topic, category, teaser, speakers, max_rounds: 10, auto_advance: true, delay_between_speakers: 1.5, delivery_mode: deliveryMode }, apiKey);
+      const generated = await debateService.generateRandomGuests(guestCount, debateLanguage, topic);
+      setProgress({ percent: 68, label: 'Einzigartige Design-Stimmen werden geprüft und archiviert' });
+      setSpeakers(generated);
+      const result = await debateService.createDebate({
+        topic, category, teaser, speakers: generated,
+        max_rounds: guestCount, auto_advance: true,
+        delay_between_speakers: 1.5, delivery_mode: deliveryMode,
+      }, apiKey);
       setSessionId(result.session_id);
       setMessages([]);
       setStatus('idle');
+      setProgress({ percent: 100, label: `${generated.length} Gäste sind bereit. Weiter startet die Sendung.` });
       await refreshSavedDebates();
-      toast.showToast(t('debateCreated'), 'success');
+      toast.showToast('Gäste und Stimmen sind vorbereitet', 'success');
     } catch (e: any) {
+      setStatus('idle');
       toast.showToast(e.message || t('debateCreateError'), 'error');
+    } finally {
+      setGuestBusy(false);
     }
-  }, [topic, category, teaser, speakers, deliveryMode, apiKey, toast, t, refreshSavedDebates]);
+  }, [topic, category, teaser, guestCount, debateLanguage, deliveryMode, apiKey, toast, t, refreshSavedDebates]);
 
   const handleStart = useCallback(async () => {
     if (!sessionId) return;
@@ -207,7 +221,11 @@ export function DebateTab() {
         case 'cue':
           if (data.type === 'applause') playStudioApplause(data.intensity || 0.5);
           break;
+        case 'audio_error':
+          toast.showToast(`Audio übersprungen: ${data.detail || 'TTS-Fehler'}`, 'warning');
+          break;
         case 'error':
+          setStatus('stopped');
           toast.showToast(data.detail || data.message || 'Debate error', 'error');
           break;
       }
@@ -224,18 +242,36 @@ export function DebateTab() {
   }, [sessionId, apiKey, toast, t]);
 
 
-  const playStudioApplause = (intensity = 0.5) => {
+  const playStudioApplause = async (intensity = 0.5) => {
     const context = new AudioContext();
-    const duration = 0.9 + intensity;
-    const buffer = context.createBuffer(1, Math.floor(context.sampleRate * duration), context.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < data.length; i += 1) {
-      const burst = Math.random() < 0.04 ? 1 : 0.15;
-      data[i] = (Math.random() * 2 - 1) * burst * Math.exp(-i / data.length * 2.4) * intensity;
+    if (context.state === 'suspended') await context.resume();
+    const duration = 2.2 + intensity * 1.4;
+    const frameCount = Math.floor(context.sampleRate * duration);
+    const buffer = context.createBuffer(2, frameCount, context.sampleRate);
+    const clapTimes = Array.from({ length: 58 }, (_, index) =>
+      0.12 + Math.pow(index / 58, 0.82) * (duration - 0.35) + Math.random() * 0.08
+    );
+    for (let channelIndex = 0; channelIndex < 2; channelIndex += 1) {
+      const data = buffer.getChannelData(channelIndex);
+      for (const clapTime of clapTimes) {
+        const start = Math.floor((clapTime + (channelIndex ? Math.random() * 0.018 : 0)) * context.sampleRate);
+        const clapLength = Math.floor(context.sampleRate * (0.018 + Math.random() * 0.025));
+        for (let i = 0; i < clapLength && start + i < data.length; i += 1) {
+          const envelope = Math.exp(-i / (clapLength * 0.22));
+          const body = Math.sin(i * 0.42) * 0.22 + (Math.random() * 2 - 1) * 0.78;
+          data[start + i] += body * envelope * (0.25 + Math.random() * 0.35) * intensity;
+        }
+      }
     }
     const source = context.createBufferSource();
+    const highpass = context.createBiquadFilter();
+    const lowpass = context.createBiquadFilter();
+    const gain = context.createGain();
+    highpass.type = 'highpass'; highpass.frequency.value = 180;
+    lowpass.type = 'lowpass'; lowpass.frequency.value = 5200;
+    gain.gain.value = 0.75;
     source.buffer = buffer;
-    source.connect(context.destination);
+    source.connect(highpass).connect(lowpass).connect(gain).connect(context.destination);
     source.start();
   };
 
@@ -329,16 +365,25 @@ export function DebateTab() {
             <Button variant="secondary" onClick={generateIdea} isLoading={ideaBusy} icon={Sparkles}>KI-Vorschlag</Button>
           </div>
           {teaser && <p className="text-xs text-text-secondary">{teaser}</p>}
+          <div className="grid grid-cols-1 md:grid-cols-[160px_140px_1fr] gap-sm">
+            <select value={debateLanguage} onChange={e => setDebateLanguage(e.target.value)} disabled={status === 'running'} className="px-sm py-xs rounded bg-bg-surface border border-border-subtle text-text-primary text-xs">
+              {['German','English','French','Spanish','Italian'].map(lang => <option key={lang} value={lang}>{lang}</option>)}
+            </select>
+            <select value={guestCount} onChange={e => setGuestCount(Number(e.target.value) as 2 | 4 | 6 | 8)} disabled={status === 'running'} className="px-sm py-xs rounded bg-bg-surface border border-border-subtle text-text-primary text-xs">
+              {[2,4,6,8].map(count => <option key={count} value={count}>{count} KI-Gäste</option>)}
+            </select>
+<div className="text-xs text-text-secondary flex items-center">Gäste und Stimmen werden automatisch beim Start vorbereitet.</div>
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-sm">
             {speakers.map((s, i) => (
-              <div key={s.id} className="p-sm rounded-md bg-bg-surface/50 border border-border-subtle relative group">
+              <button type="button" onClick={() => setSelectedGuest(s)} key={s.id} className="text-left p-sm rounded-md bg-bg-surface/50 border border-border-subtle relative group">
                 <div className="flex items-center gap-sm mb-xs">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: speakerColors[i % speakerColors.length] }} />
                   <span className="text-sm font-medium text-text-primary">{s.name}</span>
                   <button onClick={() => removeSpeaker(s.id)} className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14} className="text-text-secondary hover:text-red-400" /></button>
                 </div>
-                <div className="text-xs text-text-secondary truncate">{s.personality.slice(0, 60)}...</div>
-              </div>
+                <div className="text-xs text-text-secondary truncate">{s.age || '?'} · {s.origin || 'Unbekannt'} · {s.occupation || 'Gast'}</div><div className="text-[10px] text-accent-cyan mt-xs">Design-Stimme: {s.voice_archive_id || 'wird vorbereitet'}</div>
+              </button>
             ))}
             {speakers.length < 6 && (
               <div className="p-sm rounded-md border border-dashed border-border-subtle flex items-center justify-center">
@@ -362,14 +407,14 @@ export function DebateTab() {
             </div>
           </details>
           <div className="flex gap-sm items-center flex-wrap">
-            <select value={deliveryMode} onChange={e => { const mode = e.target.value as 'live' | 'prerecorded'; setDeliveryMode(mode); setAutoPlay(mode === 'live'); }} disabled={!!sessionId} className="px-sm py-xs rounded bg-bg-surface border border-border-subtle text-text-primary text-xs">
+            <select value={deliveryMode} onChange={async e => { const mode = e.target.value as 'live' | 'prerecorded'; setDeliveryMode(mode); setAutoPlay(mode === 'live'); if (sessionId && status !== 'running') { try { await debateService.updateDeliveryMode(sessionId, mode); } catch (error) { toast.showToast((error as Error).message, 'error'); } } }} disabled={status === 'running' || status === 'creating_voices'} className="px-sm py-xs rounded bg-bg-surface border border-border-subtle text-text-primary text-xs">
               <option value="live">Live-Streaming</option>
               <option value="prerecorded">Vorproduziert</option>
             </select>
             {!sessionId ? (
-              <Button onClick={handleCreate} disabled={!topic.trim() || speakers.length < 2}>{t('debateCreate')}</Button>
+              <Button onClick={handleCreate} isLoading={guestBusy} disabled={!topic.trim()} icon={Play}>Radio Talk Show vorbereiten</Button>
             ) : status === 'idle' || status === 'stopped' || status === 'finished' ? (
-              <Button onClick={handleStart} icon={Play}>{status === 'finished' ? t('debateReplay') : t('debateStart')}</Button>
+              <Button onClick={handleStart} icon={Play}>{status === 'finished' ? t('debateReplay') : 'Weiter: Sendung starten'}</Button>
             ) : (
               <Button onClick={handleStop} icon={Square} variant="secondary">{t('debateStop')}</Button>
             )}
@@ -398,9 +443,9 @@ export function DebateTab() {
       </Card>
 
 
-      {!sessionId && <Card title="Gespeicherte Debatten">
+      {!sessionId && <Card title="Gespeicherte Radio Talk Shows">
         <div className="space-y-sm">
-          {savedDebates.length === 0 && <p className="text-text-muted">Noch keine Debatten gespeichert.</p>}
+          {savedDebates.length === 0 && <p className="text-text-muted">Noch keine Radio Talk Shows gespeichert.</p>}
           {savedDebates.map(item => <button key={item.session_id} onClick={() => resumeDebate(item.session_id)} className="w-full p-md text-left rounded bg-bg-surface border border-border-subtle hover:border-accent-cyan">
             <div className="text-text-primary font-semibold">{item.topic}</div>
             <div className="text-xs text-text-muted">{item.message_count} Beiträge · {item.status} · {new Date(item.updated_at).toLocaleString()}</div>
@@ -439,7 +484,7 @@ export function DebateTab() {
       {sessionId && (
         <Card title={
           <span className="flex items-center gap-sm">
-            {status === 'running' ? <><Loader size={14} className="animate-spin text-accent-cyan" /> Live-Debatte</> : 'Debatten-Transkript'}
+            {status === 'running' ? <><Loader size={14} className="animate-spin text-accent-cyan" /> Radio Talk Show live</> : 'Sendungs-Transkript'}
             {status === 'running' && <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />}
           </span>
         }>
@@ -505,6 +550,17 @@ export function DebateTab() {
           </div>
         </Card>
       )}
+
+      {selectedGuest && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-lg" onClick={() => setSelectedGuest(null)}>
+        <div className="max-w-lg w-full rounded-lg bg-bg-card border border-border-subtle p-lg" onClick={e => e.stopPropagation()}>
+          <h3 className="text-xl text-text-primary font-semibold">{selectedGuest.name}</h3>
+          <p className="text-sm text-accent-cyan">{selectedGuest.age} Jahre · {selectedGuest.origin} · {selectedGuest.occupation}</p>
+          <p className="mt-md text-text-secondary">{selectedGuest.personality}</p>
+          <blockquote className="mt-md p-md bg-bg-surface rounded">„{selectedGuest.motto}“</blockquote>
+          <p className="mt-md text-xs text-text-muted">Sprache: {selectedGuest.language} · Design-Stimme: {selectedGuest.voice_archive_id || 'archiviert'}</p>
+          <Button className="w-full mt-lg" onClick={() => setSelectedGuest(null)}>Schließen</Button>
+        </div>
+      </div>}
     </div>
   );
 }
