@@ -24,7 +24,8 @@
 
 #include "../vendor/cpp-httplib/httplib.h"
 #include "audio-io.h"
-#include "tts-web-ui.h"
+#include "admin-api.h"
+#include "tts-web-assets.h"
 #include "yyjson.h"
 
 #include <cfloat>
@@ -515,7 +516,16 @@ static int tts_server_run(const tts_backend & be, const server_config & cfg) {
     });
 
     svr.Get("/", [](const httplib::Request &, httplib::Response & res) {
-        res.set_content(TTS_WEB_UI, "text/html; charset=utf-8");
+        res.set_content(reinterpret_cast<const char *>(TTS_UI_HTML), TTS_UI_HTML_LEN,
+                        "text/html; charset=utf-8");
+    });
+    svr.Get(TTS_UI_CSS_PATH, [](const httplib::Request &, httplib::Response & res) {
+        res.set_content(reinterpret_cast<const char *>(TTS_UI_CSS), TTS_UI_CSS_LEN,
+                        "text/css; charset=utf-8");
+    });
+    svr.Get(TTS_UI_JS_PATH, [](const httplib::Request &, httplib::Response & res) {
+        res.set_content(reinterpret_cast<const char *>(TTS_UI_JS), TTS_UI_JS_LEN,
+                        "application/javascript; charset=utf-8");
     });
     svr.Post("/v1/audio/speech",
              [&be](const httplib::Request & req, httplib::Response & res) { tts_handle_speech(be, req, res); });
@@ -527,6 +537,8 @@ static int tts_server_run(const tts_backend & be, const server_config & cfg) {
              [&be](const httplib::Request & req, httplib::Response & res) { tts_handle_voice_register(be, req, res); });
     svr.Delete(R"(/v1/voices/(.+))",
                [&be](const httplib::Request & req, httplib::Response & res) { tts_handle_voice_delete(be, req, res); });
+    svr.Get("/v1/admin/scripts", admin_scripts_list);
+    svr.Post("/v1/admin/scripts/run", admin_script_enqueue);
     svr.Get("/health", tts_handle_health);
 
     signal(SIGINT, tts_on_signal);

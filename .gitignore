@@ -6,3 +6,32 @@ tests/*/
 checkpoints/
 models/*.gguf
 __pycache__/
+
+# Local runtime and secrets
+.env
+.runtime/
+logs/
+bin/
+
+# Frontend dependencies and generated build
+webui/node_modules/
+webui/dist/
+lmstudio-plugin/node_modules/
+
+# Local model data and installers
+models/
+*.gguf
+*.safetensors
+miniconda.sh
+
+# Local build products
+Release/
+compile_commands.json
+version.h
+lib*.so
+lib*.so.*
+lib*.a
+vendor/cpp-httplib/CMakeFiles/
+vendor/cpp-httplib/Makefile
+vendor/cpp-httplib/cmake_install.cmake
+**/.ipynb_checkpoints/
