@@ -57,10 +57,15 @@ async function handleGenerate(body) {
   const role = body.role || 'story';
   const modelId = body.model || process.env.LMS_DEFAULT_MODEL || 'qwen3-14b-128k';
   const model = await client.llm.model(modelId);
-  const result = await model.respond(String(body.prompt || ''), {
-    temperature: role === 'director' ? 0.4 : 0.8,
+  const rawPrompt = String(body.prompt || '');
+  const prompt = role === 'story' ? rawPrompt : `/no_think\nAntworte direkt ohne Analyse oder Vorrede.\n${rawPrompt}`;
+  const maxTokens = Number(body.max_tokens || (role === 'director' ? 500 : role === 'debate' ? 1400 : 3000));
+  const result = await model.respond(prompt, {
+    temperature: role === 'director' ? 0.4 : 0.7,
+    maxTokens,
   });
-  return { content: result.content.trim(), model: modelId, role };
+  const content = String(result.nonReasoningContent || result.content || '').trim();
+  return { content, model: modelId, role };
 }
 
 async function handleModels() {
